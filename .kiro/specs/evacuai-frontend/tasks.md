@@ -1,66 +1,66 @@
 # Implementation Tasks
 
 ## Task 1: Project Scaffolding and Tailwind Design System
-- [ ] Initialize Vite + React + TypeScript project in `/frontend` with `npm create vite@latest frontend -- --template react-ts`
-- [ ] Configure `tsconfig.json` with `strict: true` and path alias `@/*` → `src/*`
-- [ ] Install Tailwind CSS: `npm install -D tailwindcss @tailwindcss/vite` and configure `vite.config.ts` with the Tailwind plugin
-- [ ] Create `tailwind.config.ts` with the full custom theme from the design doc: surface colors, fire spectrum, route/zone/elevation semantics, font families (Inter, JetBrains Mono), custom spacing (header, control-panel, results-panel), box shadows (glow-fire, glow-safe), and animations (pulse-slow, fade-in, glow)
-- [ ] Create `src/index.css` with `@import "tailwindcss"` and `@layer base` directives for font-face imports (Inter from Google Fonts, JetBrains Mono), html/body dark background (`bg-surface-base text-gray-100`), and custom scrollbar styling
-- [ ] Install utility: `npm install clsx tailwind-merge` and create `src/lib/cn.ts` exporting a `cn()` helper combining clsx + twMerge
-- [ ] Install map dependencies: `npm install deck.gl @deck.gl/react @deck.gl/layers @deck.gl/geo-layers mapbox-gl react-map-gl`
-- [ ] Create `.env.example` with `VITE_API_MODE=mock`, `VITE_API_BASE_URL=http://localhost:8000`, `VITE_MAPBOX_TOKEN=`
-- [ ] Verify dev server starts, dark background renders, Tailwind classes apply, and custom theme colors work
+- [x] Initialize Vite + React + TypeScript project in `/frontend` with `npm create vite@latest frontend -- --template react-ts`
+- [x] Configure `tsconfig.json` with `strict: true` and path alias `@/*` → `src/*`
+- [x] Install Tailwind CSS: `npm install -D tailwindcss @tailwindcss/vite` and configure `vite.config.ts` with the Tailwind plugin
+- [x] Create `tailwind.config.ts` with the full custom theme from the design doc: surface colors, fire spectrum, route/zone/elevation semantics, font families (Inter, JetBrains Mono), custom spacing (header, control-panel, results-panel), box shadows (glow-fire, glow-safe), and animations (pulse-slow, fade-in, glow)
+- [x] Create `src/index.css` with `@import "tailwindcss"` and `@layer base` directives for font-face imports (Inter from Google Fonts, JetBrains Mono), html/body dark background (`bg-surface-base text-gray-100`), and custom scrollbar styling
+- [x] Install utility: `npm install clsx tailwind-merge` and create `src/lib/cn.ts` exporting a `cn()` helper combining clsx + twMerge
+- [x] Install map dependencies: `npm install deck.gl @deck.gl/react @deck.gl/layers @deck.gl/geo-layers mapbox-gl react-map-gl`
+- [x] Create `.env.example` with `VITE_API_MODE=mock`, `VITE_API_BASE_URL=http://localhost:8000`, `VITE_MAPBOX_TOKEN=`
+- [x] Verify dev server starts, dark background renders, Tailwind classes apply, and custom theme colors work
 
 ## Task 2: TypeScript API Types and Service Layer
-- [ ] Create `src/types/api.ts` with all interfaces mirroring backend Pydantic schemas: `SimulateRequest`, `SimulateResponse`, `SimulationProgress`, `GridBounds`, `BurnProbabilityMap`, `ArrivalTimeStats`, `RouteSegment`, `EvacuationRoute`, `ZoneResult`, `SimulationResults`, `WindData`, `ScenarioPreset`
-- [ ] Create `src/services/api.ts` defining the `EvacuAIApi` interface with methods `simulate()`, `getResults()`, `getWind()`, `getScenarios()` and a factory function returning `MockApiClient` or `LiveApiClient` based on `VITE_API_MODE`
-- [ ] Create `src/services/liveApiClient.ts` implementing `EvacuAIApi` with fetch-based HTTP calls, handling 422 (parse field errors), 202 (return progress), and network errors (throw typed error)
-- [ ] Create `src/services/mockApiClient.ts` implementing `EvacuAIApi` with realistic mock data and simulated delays (100ms for wind/scenarios, 3s progressive for simulation with progress callbacks)
-- [ ] Create `src/assets/mock/simulationResults.json` with realistic mock output for the demo region including burn grid, routes, zones, and summary
-- [ ] Create `src/assets/mock/windData.json` with mock NWS wind response (14 mph SW, 22 gust, 18% humidity)
-- [ ] Create `src/assets/mock/scenarios.json` with three presets: Fast Wind Shift, Night Evacuation, School Zone
+- [x] Create `src/types/api.ts` with all interfaces mirroring backend Pydantic schemas: `SimulateRequest`, `SimulateResponse`, `SimulationProgress`, `GridBounds`, `BurnProbabilityMap`, `ArrivalTimeStats`, `RouteSegment`, `EvacuationRoute`, `ZoneResult`, `SimulationResults`, `WindData`, `ScenarioPreset`
+- [x] Create `src/services/api.ts` defining the `EvacuAIApi` interface with methods `simulate()`, `getResults()`, `getWind()`, `getScenarios()` and a factory function returning `MockApiClient` or `LiveApiClient` based on `VITE_API_MODE`
+- [x] Create `src/services/liveApiClient.ts` implementing `EvacuAIApi` with fetch-based HTTP calls, handling 422 (parse field errors), 202 (return progress), and network errors (throw typed error)
+- [x] Create `src/services/mockApiClient.ts` implementing `EvacuAIApi` with realistic mock data and simulated delays (100ms for wind/scenarios, 3s progressive for simulation with progress callbacks)
+- [x] Create `src/assets/mock/simulationResults.json` with realistic mock output for the demo region including burn grid, routes, zones, and summary
+- [x] Create `src/assets/mock/windData.json` with mock NWS wind response (14 mph SW, 22 gust, 18% humidity)
+- [x] Create `src/assets/mock/scenarios.json` with three presets: Fast Wind Shift, Night Evacuation, School Zone
 
 ## Task 3: State Management (SimulationContext)
-- [ ] Create `src/context/simulationReducer.ts` with `SimulationState` interface, discriminated union action types (`SET_IGNITION`, `SET_WIND`, `SET_SCENARIO`, `SET_MC_RUNS`, `SUBMIT_SIMULATION`, `UPDATE_PROGRESS`, `SET_RESULTS`, `SET_ERROR`, `TOGGLE_DEMO_MODE`, `SET_DEMO_STEP`, `SELECT_ZONE`, `SET_ANIMATION_TIMESTEP`, `TOGGLE_LAYER`, `TOGGLE_ANIMATION`, `SET_TERRAIN_EXAGGERATION`, `STORE_PREVIOUS_RESULTS`), and pure reducer function
-- [ ] Create `src/context/SimulationContext.tsx` with React.createContext, Provider wrapping useReducer, and initial state (idle, null results, default wind, all layers visible)
-- [ ] Create `src/hooks/useSimulation.ts` consuming context, exposing typed dispatch helpers (`setIgnition()`, `setWind()`, `runSimulation()`, etc.) and memoized selectors
-- [ ] Create `src/hooks/usePolling.ts` — generic hook accepting async fn + interval + stop condition, with cleanup on unmount
-- [ ] Create `src/hooks/useKeyboardShortcuts.ts` for Ctrl+D (demo mode toggle)
-- [ ] Wire `SimulationProvider` into `App.tsx`
+- [x] Create `src/context/simulationReducer.ts` with `SimulationState` interface, discriminated union action types (`SET_IGNITION`, `SET_WIND`, `SET_SCENARIO`, `SET_MC_RUNS`, `SUBMIT_SIMULATION`, `UPDATE_PROGRESS`, `SET_RESULTS`, `SET_ERROR`, `TOGGLE_DEMO_MODE`, `SET_DEMO_STEP`, `SELECT_ZONE`, `SET_ANIMATION_TIMESTEP`, `TOGGLE_LAYER`, `TOGGLE_ANIMATION`, `SET_TERRAIN_EXAGGERATION`, `STORE_PREVIOUS_RESULTS`), and pure reducer function
+- [x] Create `src/context/SimulationContext.tsx` with React.createContext, Provider wrapping useReducer, and initial state (idle, null results, default wind, all layers visible)
+- [x] Create `src/hooks/useSimulation.ts` consuming context, exposing typed dispatch helpers (`setIgnition()`, `setWind()`, `runSimulation()`, etc.) and memoized selectors
+- [x] Create `src/hooks/usePolling.ts` — generic hook accepting async fn + interval + stop condition, with cleanup on unmount
+- [x] Create `src/hooks/useKeyboardShortcuts.ts` for Ctrl+D (demo mode toggle)
+- [x] Wire `SimulationProvider` into `App.tsx`
 
 ## Task 4: Command Center Layout Shell
-- [ ] Create `src/App.tsx` rendering `<SimulationProvider>` → `<CommandCenter />` → `<ToastContainer />`
-- [ ] Create `src/components/CommandCenter.tsx`: `div.h-screen flex flex-col bg-surface-base` containing HeaderBar + MainContent (`div.flex flex-1 overflow-hidden`)
-- [ ] Create `src/components/HeaderBar.tsx`: `header.h-12 bg-surface-raised border-b border-surface-border flex items-center px-4 gap-4` with Logo, ScenarioLabel (`text-sm text-gray-400`), SimulationStatus, and WindRose
-- [ ] Create `src/components/SimulationStatus.tsx`: colored dot (`w-2 h-2 rounded-full`) — `bg-gray-500` idle, `bg-accent-primary animate-pulse` running, `bg-accent-success` complete, `bg-accent-error` error — plus status text in `text-xs font-mono`
-- [ ] Create stub `src/features/controls/ControlPanel.tsx`: `aside.w-80 shrink-0 bg-surface-raised border-r border-surface-border overflow-y-auto p-4 space-y-4 hidden lg:flex lg:flex-col`
-- [ ] Create stub `src/features/map/MapView.tsx`: `div.flex-1 relative bg-surface-base`
-- [ ] Create stub `src/features/results/ResultsPanel.tsx`: `aside.w-96 shrink-0 bg-surface-raised border-l border-surface-border overflow-y-auto p-4 space-y-4 hidden lg:flex lg:flex-col`
-- [ ] Implement mobile drawer behavior: panels use `fixed inset-y-0 z-20 transform transition-transform duration-300` with translate toggle, plus backdrop overlay `fixed inset-0 bg-black/50 z-10`
-- [ ] Add toggle buttons on map edges for mobile: `absolute top-1/2 left-0 z-10` and `right-0` with chevron icons
-- [ ] Verify 3-column layout at xl, narrower at lg, drawers at md and below
+- [x] Create `src/App.tsx` rendering `<SimulationProvider>` → `<CommandCenter />` → `<ToastContainer />`
+- [x] Create `src/components/CommandCenter.tsx`: `div.h-screen flex flex-col bg-surface-base` containing HeaderBar + MainContent (`div.flex flex-1 overflow-hidden`)
+- [x] Create `src/components/HeaderBar.tsx`: `header.h-12 bg-surface-raised border-b border-surface-border flex items-center px-4 gap-4` with Logo, ScenarioLabel (`text-sm text-gray-400`), SimulationStatus, and WindRose
+- [x] Create `src/components/SimulationStatus.tsx`: colored dot (`w-2 h-2 rounded-full`) — `bg-gray-500` idle, `bg-accent-primary animate-pulse` running, `bg-accent-success` complete, `bg-accent-error` error — plus status text in `text-xs font-mono`
+- [x] Create stub `src/features/controls/ControlPanel.tsx`: `aside.w-80 shrink-0 bg-surface-raised border-r border-surface-border overflow-y-auto p-4 space-y-4 hidden lg:flex lg:flex-col`
+- [x] Create stub `src/features/map/MapView.tsx`: `div.flex-1 relative bg-surface-base`
+- [x] Create stub `src/features/results/ResultsPanel.tsx`: `aside.w-96 shrink-0 bg-surface-raised border-l border-surface-border overflow-y-auto p-4 space-y-4 hidden lg:flex lg:flex-col`
+- [x] Implement mobile drawer behavior: panels use `fixed inset-y-0 z-20 transform transition-transform duration-300` with translate toggle, plus backdrop overlay `fixed inset-0 bg-black/50 z-10`
+- [x] Add toggle buttons on map edges for mobile: `absolute top-1/2 left-0 z-10` and `right-0` with chevron icons
+- [x] Verify 3-column layout at xl, narrower at lg, drawers at md and below
 
 ## Task 5: Interactive Map with Base Layers and Elevation
-- [ ] Implement `src/features/map/MapView.tsx` with `<DeckGL>` + `<Map>` from react-map-gl, dark style (`mapbox://styles/mapbox/dark-v11`), centered on demo region, zoom 12
-- [ ] Implement click-to-ignite: `onClick` handler dispatches `SET_IGNITION` with `{lat, lon}` from pick info
-- [ ] Create `src/features/map/IgnitionMarker.tsx`: Deck.gl `ScatterplotLayer` with `radiusScale` animation (pulsing via `getRadius` + requestAnimationFrame), `getFillColor: [255, 107, 53, 200]`
-- [ ] Create `src/features/map/ElevationLayer.tsx`: configure Mapbox `addSource('mapbox-dem', { type: 'raster-dem', url: 'mapbox://mapbox.mapbox-terrain-dem-v1' })`, `map.setTerrain({ source: 'mapbox-dem', exaggeration })`, and hillshade layer
-- [ ] Add terrain exaggeration slider in LayerToggle: `input[type=range]` min=1 max=3 step=0.5, styled with `accent-accent-primary`, dispatches `SET_TERRAIN_EXAGGERATION`
-- [ ] Create `src/features/map/PerimeterOutline.tsx`: `GeoJsonLayer` with dashed orange stroke (`getLineColor: [255, 107, 53, 180]`, `getDashArray: [8, 4]`)
-- [ ] Create `src/features/map/ShelterMarkers.tsx`: `IconLayer` or `ScatterplotLayer` with distinct blue markers, text labels for capacity
-- [ ] Create `src/components/LayerToggle.tsx`: floating panel `absolute top-4 right-4 z-10 bg-surface-overlay/90 backdrop-blur-sm border border-surface-border rounded-lg p-3 space-y-2` with labeled checkboxes for each layer
-- [ ] Wire layer toggles to `visibleLayers` in SimulationContext
-- [ ] Graceful fallback: if `VITE_MAPBOX_TOKEN` is empty, use OSM tiles, disable elevation toggle with `opacity-50 cursor-not-allowed` and tooltip
+- [x] Implement `src/features/map/MapView.tsx` with `<DeckGL>` + `<Map>` from react-map-gl, dark style (`mapbox://styles/mapbox/dark-v11`), centered on demo region, zoom 12
+- [x] Implement click-to-ignite: `onClick` handler dispatches `SET_IGNITION` with `{lat, lon}` from pick info
+- [x] Create `src/features/map/IgnitionMarker.tsx`: Deck.gl `ScatterplotLayer` with `radiusScale` animation (pulsing via `getRadius` + requestAnimationFrame), `getFillColor: [255, 107, 53, 200]`
+- [x] Create `src/features/map/ElevationLayer.tsx`: configure Mapbox `addSource('mapbox-dem', { type: 'raster-dem', url: 'mapbox://mapbox.mapbox-terrain-dem-v1' })`, `map.setTerrain({ source: 'mapbox-dem', exaggeration })`, and hillshade layer
+- [x] Add terrain exaggeration slider in LayerToggle: `input[type=range]` min=1 max=3 step=0.5, styled with `accent-accent-primary`, dispatches `SET_TERRAIN_EXAGGERATION`
+- [x] Create `src/features/map/PerimeterOutline.tsx`: `GeoJsonLayer` with dashed orange stroke (`getLineColor: [255, 107, 53, 180]`, `getDashArray: [8, 4]`)
+- [x] Create `src/features/map/ShelterMarkers.tsx`: `IconLayer` or `ScatterplotLayer` with distinct blue markers, text labels for capacity
+- [x] Create `src/components/LayerToggle.tsx`: floating panel `absolute top-4 right-4 z-10 bg-surface-overlay/90 backdrop-blur-sm border border-surface-border rounded-lg p-3 space-y-2` with labeled checkboxes for each layer
+- [x] Wire layer toggles to `visibleLayers` in SimulationContext
+- [x] Graceful fallback: if `VITE_MAPBOX_TOKEN` is empty, use OSM tiles, disable elevation toggle with `opacity-50 cursor-not-allowed` and tooltip
 
 ## Task 6: Control Panel — Full Implementation
-- [ ] Implement `src/features/controls/IgnitionSection.tsx`: section with `text-xs uppercase tracking-wider text-gray-500 mb-2` label, lat/lon display in `font-mono text-sm`, "Select on Map" button (`bg-surface-overlay hover:bg-surface-hover border border-surface-border rounded-md px-3 py-2 text-sm`), clear button
-- [ ] Implement `src/features/controls/WindSection.tsx`: 2×2 grid of labeled numeric inputs (`bg-surface-base border border-surface-border rounded-md px-3 py-2 font-mono text-sm text-gray-200 focus:border-accent-primary focus:ring-1 focus:ring-accent-primary/30`), "Fetch Live Wind" button, Live/Manual toggle using segmented control
-- [ ] Wire "Fetch Live Wind" to `api.getWind()`, populate fields, show toast on success/fallback
-- [ ] Implement `src/features/controls/ScenarioSelector.tsx`: fetch from `api.getScenarios()`, render as cards (`bg-surface-overlay hover:bg-surface-hover border border-surface-border rounded-lg p-3 cursor-pointer transition-colors`) with name + description, selected state with `ring-2 ring-accent-primary`
-- [ ] Implement `src/features/controls/MonteCarloSlider.tsx`: `input[type=range]` with `accent-fire-active`, min=50 max=1000 step=50, numeric display in `font-mono text-lg font-bold text-gray-200`
-- [ ] Implement `src/features/controls/RunButton.tsx`: full-width button with fire glow, disabled state, progress overlay bar during run (inner div with `bg-fire-active/30` width transitioning)
-- [ ] Client-side validation: wind speed 0–100, direction 0–360, gust 0–150, humidity 0–100, ignition required — invalid fields get `border-accent-error` + error text in `text-xs text-accent-error`
-- [ ] Wire RunButton → `SUBMIT_SIMULATION` → `api.simulate()` → `usePolling` → `UPDATE_PROGRESS` / `SET_RESULTS`
+- [x] Implement `src/features/controls/IgnitionSection.tsx`: section with `text-xs uppercase tracking-wider text-gray-500 mb-2` label, lat/lon display in `font-mono text-sm`, "Select on Map" button (`bg-surface-overlay hover:bg-surface-hover border border-surface-border rounded-md px-3 py-2 text-sm`), clear button
+- [x] Implement `src/features/controls/WindSection.tsx`: 2×2 grid of labeled numeric inputs (`bg-surface-base border border-surface-border rounded-md px-3 py-2 font-mono text-sm text-gray-200 focus:border-accent-primary focus:ring-1 focus:ring-accent-primary/30`), "Fetch Live Wind" button, Live/Manual toggle using segmented control
+- [x] Wire "Fetch Live Wind" to `api.getWind()`, populate fields, show toast on success/fallback
+- [x] Implement `src/features/controls/ScenarioSelector.tsx`: fetch from `api.getScenarios()`, render as cards (`bg-surface-overlay hover:bg-surface-hover border border-surface-border rounded-lg p-3 cursor-pointer transition-colors`) with name + description, selected state with `ring-2 ring-accent-primary`
+- [x] Implement `src/features/controls/MonteCarloSlider.tsx`: `input[type=range]` with `accent-fire-active`, min=50 max=1000 step=50, numeric display in `font-mono text-lg font-bold text-gray-200`
+- [x] Implement `src/features/controls/RunButton.tsx`: full-width button with fire glow, disabled state, progress overlay bar during run (inner div with `bg-fire-active/30` width transitioning)
+- [x] Client-side validation: wind speed 0–100, direction 0–360, gust 0–150, humidity 0–100, ignition required — invalid fields get `border-accent-error` + error text in `text-xs text-accent-error`
+- [x] Wire RunButton → `SUBMIT_SIMULATION` → `api.simulate()` → `usePolling` → `UPDATE_PROGRESS` / `SET_RESULTS`
 
 ## Task 7: Burn Heatmap and Fire Animation
 - [ ] Implement `src/features/map/BurnHeatmapLayer.tsx`: Deck.gl `HeatmapLayer` or custom `BitmapLayer` rendering burn probability grid with color ramp (transparent → `fire-low` → `fire-medium` → `fire-high` → `fire-extreme`)

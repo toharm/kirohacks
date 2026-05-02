@@ -1,0 +1,49 @@
+{
+  "shelters": [
+    {
+      "id": "shelter-1",
+      "name": "Chico High School",
+      "lat": 39.7285,
+      "lon": -121.8375,
+      "capacity": 2500,
+      "accessibility": true,
+      "type": "school"
+    },
+    {
+      "id": "shelter-2",
+      "name": "Silver Dollar Fairgrounds",
+      "lat": 39.7456,
+      "lon": -121.8123,
+      "capacity": 5000,
+      "accessibility": true,
+      "type": "fairgrounds"
+    },
+    {
+      "id": "shelter-3",
+      "name": "Oroville Community Center",
+      "lat": 39.5138,
+      "lon": -121.5556,
+      "capacity": 1500,
+      "accessibility": true,
+      "type": "community_center"
+    },
+    {
+      "id": "shelter-4",
+      "name": "Butte College",
+      "lat": 39.6589,
+      "lon": -121.6234,
+      "capacity": 3000,
+      "accessibility": true,
+      "type": "college"
+    },
+    {
+      "id": "shelter-5",
+      "name": "Durham Park",
+      "lat": 39.6456,
+      "lon": -121.7989,
+      "capacity": 800,
+      "accessibility": false,
+      "type": "park"
+    }
+  ]
+}

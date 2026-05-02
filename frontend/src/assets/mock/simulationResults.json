@@ -1,0 +1,362 @@
+{
+  "status": "complete",
+  "job_id": "demo-paradise-001",
+  "burn_probability": {
+    "grid": [
+      [0.0, 0.0, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7],
+      [0.0, 0.0, 0.1, 0.2, 0.3, 0.5, 0.6, 0.7, 0.8, 0.8],
+      [0.0, 0.1, 0.2, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.9],
+      [0.1, 0.2, 0.3, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.95],
+      [0.2, 0.3, 0.4, 0.6, 0.7, 0.8, 0.9, 0.95, 1.0, 1.0],
+      [0.3, 0.4, 0.5, 0.7, 0.8, 0.9, 0.95, 1.0, 1.0, 1.0],
+      [0.2, 0.3, 0.4, 0.6, 0.7, 0.8, 0.9, 0.95, 0.95, 0.9],
+      [0.1, 0.2, 0.3, 0.5, 0.6, 0.7, 0.8, 0.85, 0.85, 0.8],
+      [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.7, 0.6],
+      [0.0, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.5, 0.5, 0.4]
+    ],
+    "grid_bounds": {
+      "min_lat": 39.65,
+      "max_lat": 39.90,
+      "min_lon": -121.75,
+      "max_lon": -121.40,
+      "cell_size_m": 100,
+      "grid_rows": 10,
+      "grid_cols": 10
+    }
+  },
+  "arrival_times": {
+    "mean": [
+      [999, 999, 999, 45, 40, 35, 30, 25, 20, 15],
+      [999, 999, 50, 42, 37, 32, 27, 22, 17, 12],
+      [999, 55, 47, 39, 34, 29, 24, 19, 14, 10],
+      [60, 52, 44, 36, 31, 26, 21, 16, 11, 8],
+      [55, 47, 39, 33, 28, 23, 18, 13, 8, 5],
+      [50, 42, 36, 30, 25, 20, 15, 10, 5, 3],
+      [55, 47, 39, 33, 28, 23, 18, 13, 10, 8],
+      [60, 52, 44, 36, 31, 26, 21, 16, 14, 12],
+      [999, 57, 49, 41, 36, 31, 26, 21, 18, 16],
+      [999, 999, 54, 46, 41, 36, 31, 26, 23, 20]
+    ],
+    "median": [
+      [999, 999, 999, 44, 39, 34, 29, 24, 19, 14],
+      [999, 999, 49, 41, 36, 31, 26, 21, 16, 11],
+      [999, 54, 46, 38, 33, 28, 23, 18, 13, 9],
+      [59, 51, 43, 35, 30, 25, 20, 15, 10, 7],
+      [54, 46, 38, 32, 27, 22, 17, 12, 7, 4],
+      [49, 41, 35, 29, 24, 19, 14, 9, 4, 2],
+      [54, 46, 38, 32, 27, 22, 17, 12, 9, 7],
+      [59, 51, 43, 35, 30, 25, 20, 15, 13, 11],
+      [999, 56, 48, 40, 35, 30, 25, 20, 17, 15],
+      [999, 999, 53, 45, 40, 35, 30, 25, 22, 19]
+    ],
+    "p10": [
+      [999, 999, 999, 38, 33, 28, 23, 18, 13, 8],
+      [999, 999, 43, 35, 30, 25, 20, 15, 10, 5],
+      [999, 48, 40, 32, 27, 22, 17, 12, 7, 3],
+      [53, 45, 37, 29, 24, 19, 14, 9, 4, 1],
+      [48, 40, 32, 26, 21, 16, 11, 6, 1, 0],
+      [43, 35, 29, 23, 18, 13, 8, 3, 0, 0],
+      [48, 40, 32, 26, 21, 16, 11, 6, 3, 1],
+      [53, 45, 37, 29, 24, 19, 14, 9, 7, 5],
+      [999, 50, 42, 34, 29, 24, 19, 14, 11, 9],
+      [999, 999, 47, 39, 34, 29, 24, 19, 16, 13]
+    ],
+    "p90": [
+      [999, 999, 999, 52, 47, 42, 37, 32, 27, 22],
+      [999, 999, 57, 49, 44, 39, 34, 29, 24, 19],
+      [999, 62, 54, 46, 41, 36, 31, 26, 21, 17],
+      [67, 59, 51, 43, 38, 33, 28, 23, 18, 15],
+      [62, 54, 46, 40, 35, 30, 25, 20, 15, 12],
+      [57, 49, 43, 37, 32, 27, 22, 17, 12, 10],
+      [62, 54, 46, 40, 35, 30, 25, 20, 17, 15],
+      [67, 59, 51, 43, 38, 33, 28, 23, 21, 19],
+      [999, 64, 56, 48, 43, 38, 33, 28, 25, 23],
+      [999, 999, 61, 53, 48, 43, 38, 33, 30, 27]
+    ],
+    "grid_bounds": {
+      "min_lat": 39.65,
+      "max_lat": 39.90,
+      "min_lon": -121.75,
+      "max_lon": -121.40,
+      "cell_size_m": 100,
+      "grid_rows": 10,
+      "grid_cols": 10
+    }
+  },
+  "routes": [
+    {
+      "route_id": "route-bg12-baseline",
+      "zone_id": "BG-12",
+      "segments": [
+        { "lat": 39.7596, "lon": -121.6219 },
+        { "lat": 39.7620, "lon": -121.6180 },
+        { "lat": 39.7680, "lon": -121.6100 },
+        { "lat": 39.7750, "lon": -121.5950 },
+        { "lat": 39.7820, "lon": -121.5800 },
+        { "lat": 39.7900, "lon": -121.5650 }
+      ],
+      "viability_score": 64,
+      "travel_time_minutes": 18,
+      "strategy": "baseline"
+    },
+    {
+      "route_id": "route-bg12-optimized",
+      "zone_id": "BG-12",
+      "segments": [
+        { "lat": 39.7596, "lon": -121.6219 },
+        { "lat": 39.7550, "lon": -121.6300 },
+        { "lat": 39.7500, "lon": -121.6400 },
+        { "lat": 39.7450, "lon": -121.6550 },
+        { "lat": 39.7400, "lon": -121.6700 },
+        { "lat": 39.7350, "lon": -121.6850 }
+      ],
+      "viability_score": 82,
+      "travel_time_minutes": 24,
+      "strategy": "optimized"
+    },
+    {
+      "route_id": "route-bg15-baseline",
+      "zone_id": "BG-15",
+      "segments": [
+        { "lat": 39.7700, "lon": -121.6000 },
+        { "lat": 39.7750, "lon": -121.5900 },
+        { "lat": 39.7800, "lon": -121.5750 },
+        { "lat": 39.7850, "lon": -121.5600 }
+      ],
+      "viability_score": 71,
+      "travel_time_minutes": 12,
+      "strategy": "baseline"
+    },
+    {
+      "route_id": "route-bg15-optimized",
+      "zone_id": "BG-15",
+      "segments": [
+        { "lat": 39.7700, "lon": -121.6000 },
+        { "lat": 39.7650, "lon": -121.6100 },
+        { "lat": 39.7600, "lon": -121.6250 },
+        { "lat": 39.7550, "lon": -121.6400 },
+        { "lat": 39.7500, "lon": -121.6550 }
+      ],
+      "viability_score": 88,
+      "travel_time_minutes": 16,
+      "strategy": "optimized"
+    },
+    {
+      "route_id": "route-bg08-baseline",
+      "zone_id": "BG-08",
+      "segments": [
+        { "lat": 39.7450, "lon": -121.6350 },
+        { "lat": 39.7400, "lon": -121.6450 },
+        { "lat": 39.7350, "lon": -121.6600 },
+        { "lat": 39.7300, "lon": -121.6750 }
+      ],
+      "viability_score": 78,
+      "travel_time_minutes": 14,
+      "strategy": "baseline"
+    },
+    {
+      "route_id": "route-bg08-optimized",
+      "zone_id": "BG-08",
+      "segments": [
+        { "lat": 39.7450, "lon": -121.6350 },
+        { "lat": 39.7420, "lon": -121.6500 },
+        { "lat": 39.7380, "lon": -121.6650 },
+        { "lat": 39.7340, "lon": -121.6800 }
+      ],
+      "viability_score": 91,
+      "travel_time_minutes": 15,
+      "strategy": "optimized"
+    },
+    {
+      "route_id": "route-bg21-baseline",
+      "zone_id": "BG-21",
+      "segments": [
+        { "lat": 39.7800, "lon": -121.5800 },
+        { "lat": 39.7850, "lon": -121.5700 },
+        { "lat": 39.7900, "lon": -121.5550 }
+      ],
+      "viability_score": 45,
+      "travel_time_minutes": 8,
+      "strategy": "baseline"
+    },
+    {
+      "route_id": "route-bg21-optimized",
+      "zone_id": "BG-21",
+      "segments": [
+        { "lat": 39.7800, "lon": -121.5800 },
+        { "lat": 39.7750, "lon": -121.5900 },
+        { "lat": 39.7700, "lon": -121.6050 },
+        { "lat": 39.7650, "lon": -121.6200 },
+        { "lat": 39.7600, "lon": -121.6350 }
+      ],
+      "viability_score": 67,
+      "travel_time_minutes": 19,
+      "strategy": "optimized"
+    }
+  ],
+  "zones": {
+    "type": "FeatureCollection",
+    "features": [
+      {
+        "type": "Feature",
+        "geometry": {
+          "type": "Polygon",
+          "coordinates": [[
+            [-121.6350, 39.7500],
+            [-121.6100, 39.7500],
+            [-121.6100, 39.7700],
+            [-121.6350, 39.7700],
+            [-121.6350, 39.7500]
+          ]]
+        },
+        "properties": {
+          "zone_id": "BG-12",
+          "population": 2340,
+          "cutoff_time": 8,
+          "evacuation_priority_score": 0.87,
+          "best_baseline_route_id": "route-bg12-baseline",
+          "best_optimized_route_id": "route-bg12-optimized",
+          "baseline_viability": 64,
+          "optimized_viability": 82,
+          "failure_risk_percentage": 18
+        }
+      },
+      {
+        "type": "Feature",
+        "geometry": {
+          "type": "Polygon",
+          "coordinates": [[
+            [-121.6100, 39.7600],
+            [-121.5850, 39.7600],
+            [-121.5850, 39.7800],
+            [-121.6100, 39.7800],
+            [-121.6100, 39.7600]
+          ]]
+        },
+        "properties": {
+          "zone_id": "BG-15",
+          "population": 1850,
+          "cutoff_time": 12,
+          "evacuation_priority_score": 0.72,
+          "best_baseline_route_id": "route-bg15-baseline",
+          "best_optimized_route_id": "route-bg15-optimized",
+          "baseline_viability": 71,
+          "optimized_viability": 88,
+          "failure_risk_percentage": 12
+        }
+      },
+      {
+        "type": "Feature",
+        "geometry": {
+          "type": "Polygon",
+          "coordinates": [[
+            [-121.6500, 39.7350],
+            [-121.6250, 39.7350],
+            [-121.6250, 39.7550],
+            [-121.6500, 39.7550],
+            [-121.6500, 39.7350]
+          ]]
+        },
+        "properties": {
+          "zone_id": "BG-08",
+          "population": 1420,
+          "cutoff_time": 22,
+          "evacuation_priority_score": 0.58,
+          "best_baseline_route_id": "route-bg08-baseline",
+          "best_optimized_route_id": "route-bg08-optimized",
+          "baseline_viability": 78,
+          "optimized_viability": 91,
+          "failure_risk_percentage": 9
+        }
+      },
+      {
+        "type": "Feature",
+        "geometry": {
+          "type": "Polygon",
+          "coordinates": [[
+            [-121.5900, 39.7700],
+            [-121.5650, 39.7700],
+            [-121.5650, 39.7900],
+            [-121.5900, 39.7900],
+            [-121.5900, 39.7700]
+          ]]
+        },
+        "properties": {
+          "zone_id": "BG-21",
+          "population": 980,
+          "cutoff_time": 5,
+          "evacuation_priority_score": 0.94,
+          "best_baseline_route_id": "route-bg21-baseline",
+          "best_optimized_route_id": "route-bg21-optimized",
+          "baseline_viability": 45,
+          "optimized_viability": 67,
+          "failure_risk_percentage": 33
+        }
+      },
+      {
+        "type": "Feature",
+        "geometry": {
+          "type": "Polygon",
+          "coordinates": [[
+            [-121.6700, 39.7200],
+            [-121.6450, 39.7200],
+            [-121.6450, 39.7400],
+            [-121.6700, 39.7400],
+            [-121.6700, 39.7200]
+          ]]
+        },
+        "properties": {
+          "zone_id": "BG-03",
+          "population": 2100,
+          "cutoff_time": 35,
+          "evacuation_priority_score": 0.45,
+          "best_baseline_route_id": "route-bg03-baseline",
+          "best_optimized_route_id": "route-bg03-optimized",
+          "baseline_viability": 85,
+          "optimized_viability": 94,
+          "failure_risk_percentage": 6
+        }
+      }
+    ]
+  },
+  "evacuation_ordering": [
+    {
+      "zone_id": "BG-21",
+      "priority_score": 0.94,
+      "population": 980,
+      "cutoff_time": 5
+    },
+    {
+      "zone_id": "BG-12",
+      "priority_score": 0.87,
+      "population": 2340,
+      "cutoff_time": 8
+    },
+    {
+      "zone_id": "BG-15",
+      "priority_score": 0.72,
+      "population": 1850,
+      "cutoff_time": 12
+    },
+    {
+      "zone_id": "BG-08",
+      "priority_score": 0.58,
+      "population": 1420,
+      "cutoff_time": 22
+    },
+    {
+      "zone_id": "BG-03",
+      "priority_score": 0.45,
+      "population": 2100,
+      "cutoff_time": 35
+    }
+  ],
+  "summary": {
+    "total_population_at_risk": 8690,
+    "zones_critical_count": 2,
+    "baseline_avg_viability": 69,
+    "optimized_avg_viability": 84,
+    "improvement_percentage": 22,
+    "confidence_interval_95": [81, 87]
+  }
+}

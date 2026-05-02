@@ -1,0 +1,38 @@
+[
+  {
+    "name": "Fast Wind Shift",
+    "description": "Simulates a rapid wind direction change from SW to NW, common during diablo wind events. Tests evacuation route adaptability when fire behavior changes suddenly.",
+    "ignition_point": {
+      "lat": 39.7596,
+      "lon": -121.6219
+    },
+    "wind_speed": 25,
+    "wind_direction": 315,
+    "wind_gust": 45,
+    "relative_humidity": 12
+  },
+  {
+    "name": "Night Evacuation",
+    "description": "Models evacuation during nighttime hours with reduced visibility and slower civilian response times. Assumes 2AM start with minimal traffic but longer mobilization delays.",
+    "ignition_point": {
+      "lat": 39.7650,
+      "lon": -121.6100
+    },
+    "wind_speed": 10,
+    "wind_direction": 180,
+    "wind_gust": 18,
+    "relative_humidity": 35
+  },
+  {
+    "name": "School Zone Priority",
+    "description": "Prioritizes evacuation of zones containing schools during school hours. Ignition point near Paradise Elementary with focus on bus route viability.",
+    "ignition_point": {
+      "lat": 39.7550,
+      "lon": -121.6300
+    },
+    "wind_speed": 18,
+    "wind_direction": 225,
+    "wind_gust": 28,
+    "relative_humidity": 22
+  }
+]

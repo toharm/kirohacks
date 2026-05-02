@@ -1,0 +1,8 @@
+{
+  "wind_speed": 14,
+  "wind_direction": 225,
+  "wind_gust": 22,
+  "relative_humidity": 18,
+  "forecast_text": "Sunny and Windy. Southwest winds 10 to 15 mph with gusts up to 25 mph.",
+  "source": "nws"
+}
