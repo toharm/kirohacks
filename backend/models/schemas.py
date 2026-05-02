@@ -87,8 +87,8 @@ class SimulationRequest(BaseModel):
     seed: Optional[int] = Field(
         None, description="Random seed for deterministic reproducibility"
     )
-    seed_dir: Optional[str] = Field(
-        None, description="Path to Region Dataset directory (defaults to bundled Paradise, CA)"
+    region: Optional[str] = Field(
+        None, description="Region slug (e.g. 'paradise-ca'). Defaults to 'paradise-ca'."
     )
 
 

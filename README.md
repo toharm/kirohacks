@@ -8,19 +8,19 @@ Owned by Tohar, Vinayak, Leon & Sai
 
 ## What's Implemented
 
-| Component | Status | Notes |
-|---|---|---|
-| Pydantic schemas (`models/schemas.py`) | ✅ Done | All request/response models, worldwide lat/lon validation |
-| Fire spread engine (`simulation/fire_spread.py`) | ✅ Done | Rothermel model, NumPy vectorized, 8-neighbor spread |
-| Seed data files (`data/seed/paradise-ca/`) | ✅ Done | Synthetic Paradise, CA dataset |
-| Data loader (`data/loader.py`) | ✅ Done | Region-agnostic, validates all required files |
-| Evacuation router (`evacuation/router.py`) | ✅ Done | Dijkstra baseline routing, disconnected graph handling |
-| NWS wind client (`data/wind_client.py`) | ✅ Done | Live fetch + fallback + manual override |
-| Monte Carlo engine (`monte_carlo/engine.py`) | ✅ Done | Stochastic sampling, burn probability maps, arrival time stats |
-| CLI entry point (`main.py`) | 🔲 Stub | Task 10 — argument parsing done, pipeline not wired |
-| FastAPI app (`api/app.py`, `api/routes.py`) | 🔲 Stub | Task 12 — not yet implemented |
-| Optimized routing | 🔲 Planned | Task 13 — depends on Monte Carlo |
-| Viability scoring | 🔲 Planned | Task 15 — depends on optimized routing |
+| Component                                        | Status     | Notes                                                          |
+| ------------------------------------------------ | ---------- | -------------------------------------------------------------- |
+| Pydantic schemas (`models/schemas.py`)           | ✅ Done    | All request/response models, worldwide lat/lon validation      |
+| Fire spread engine (`simulation/fire_spread.py`) | ✅ Done    | Rothermel model, NumPy vectorized, 8-neighbor spread           |
+| Seed data files (`data/seed/paradise-ca/`)       | ✅ Done    | Synthetic Paradise, CA dataset                                 |
+| Data loader (`data/loader.py`)                   | ✅ Done    | Region-agnostic, validates all required files                  |
+| Evacuation router (`evacuation/router.py`)       | ✅ Done    | Dijkstra baseline routing, disconnected graph handling         |
+| NWS wind client (`data/wind_client.py`)          | ✅ Done    | Live fetch + fallback + manual override                        |
+| Monte Carlo engine (`monte_carlo/engine.py`)     | ✅ Done    | Stochastic sampling, burn probability maps, arrival time stats |
+| CLI entry point (`main.py`)                      | 🔲 Stub    | Task 10 — argument parsing done, pipeline not wired            |
+| FastAPI app (`api/app.py`, `api/routes.py`)      | 🔲 Stub    | Task 12 — not yet implemented                                  |
+| Optimized routing                                | 🔲 Planned | Task 13 — depends on Monte Carlo                               |
+| Viability scoring                                | 🔲 Planned | Task 15 — depends on optimized routing                         |
 
 ---
 
@@ -42,6 +42,7 @@ pip install -r backend/requirements.txt
 ```
 
 > **Note:** `pytest` is not in `requirements.txt` yet. Install it separately for now:
+>
 > ```bash
 > pip install pytest pytest-cov hypothesis
 > ```
@@ -165,13 +166,13 @@ The one failing test (`test_scattered_nonburnable_cells`) has a hardcoded igniti
 
 ### Test coverage by module
 
-| Test file | What it covers |
-|---|---|
-| `test_schemas.py` | All Pydantic models, worldwide lat/lon validation, serialization round-trips |
-| `test_fire_spread.py` | Spread rate formula, downwind bias, non-burnable invariant, ignition time consistency, lat/lon conversion, edge cases |
-| `test_evacuation_router.py` | Dijkstra correctness, travel time sum, nearest shelter selection, disconnected graphs, no-path handling |
-| `test_loader.py` | Paradise dataset loading, configurable seed_dir, missing file errors, malformed data errors |
-| `test_monte_carlo.py` | Deterministic reproducibility, burn probability map correctness, arrival time stats, zone aggregation, road closures, run metadata |
+| Test file                   | What it covers                                                                                                                     |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `test_schemas.py`           | All Pydantic models, worldwide lat/lon validation, serialization round-trips                                                       |
+| `test_fire_spread.py`       | Spread rate formula, downwind bias, non-burnable invariant, ignition time consistency, lat/lon conversion, edge cases              |
+| `test_evacuation_router.py` | Dijkstra correctness, travel time sum, nearest shelter selection, disconnected graphs, no-path handling                            |
+| `test_loader.py`            | Paradise dataset loading, configurable seed_dir, missing file errors, malformed data errors                                        |
+| `test_monte_carlo.py`       | Deterministic reproducibility, burn probability map correctness, arrival time stats, zone aggregation, road closures, run metadata |
 
 ---
 
@@ -229,6 +230,6 @@ backend/
 ## Next Steps (in order)
 
 1. **Task 10** — Wire `backend/main.py` to run the full pipeline end-to-end
-3. **Task 12** — Implement FastAPI app and endpoints (`/api/simulate`, `/api/wind`, `/api/scenarios`)
-4. **Task 13** — Add optimized cost-function routing to `EvacuationRouter`
-5. **Task 15** — Add viability scoring, cutoff times, and evacuation ordering
+2. **Task 12** — Implement FastAPI app and endpoints (`/api/simulate`, `/api/wind`, `/api/scenarios`)
+3. **Task 13** — Add optimized cost-function routing to `EvacuationRouter`
+4. **Task 15** — Add viability scoring, cutoff times, and evacuation ordering

@@ -22,25 +22,31 @@ from backend.simulation.fire_spread import FireSpreadEngine
 router = APIRouter()
 
 ALLOWED_SEED_BASE = Path("backend/data/seed/").resolve()
-DEFAULT_SEED_DIR = "backend/data/seed/paradise-ca/"
+DEFAULT_REGION = "paradise-ca"
 
 
-def _validate_seed_dir(seed_dir: str) -> str:
-    """Validate seed_dir stays within the allowed base directory."""
-    resolved = Path(seed_dir).resolve()
+def _region_to_seed_dir(region: str | None) -> str:
+    """Resolve a region slug to a validated seed directory path."""
+    slug = region or DEFAULT_REGION
+    resolved = (ALLOWED_SEED_BASE / slug).resolve()
     if not str(resolved).startswith(str(ALLOWED_SEED_BASE)):
-        raise HTTPException(
-            status_code=400,
-            detail="seed_dir must be within backend/data/seed/",
-        )
+        raise HTTPException(status_code=400, detail="Invalid region slug.")
+    if not resolved.is_dir():
+        raise HTTPException(status_code=404, detail=f"Region '{slug}' not found.")
     return str(resolved)
+
+
+@router.get("/regions")
+def list_regions():
+    """List available region slugs."""
+    return [d.name for d in ALLOWED_SEED_BASE.iterdir() if d.is_dir()]
 
 
 @router.post("/simulate", response_model=SimulationResponse)
 def simulate(req: SimulationRequest):
     """Run a full Monte Carlo wildfire simulation."""
     # Load region dataset
-    seed_dir = _validate_seed_dir(req.seed_dir or DEFAULT_SEED_DIR)
+    seed_dir = _region_to_seed_dir(req.region)
     try:
         loader = SeedDataLoader(seed_dir=seed_dir)
         data = loader.load_all()
@@ -169,11 +175,11 @@ def get_wind(lat: float, lon: float):
 
 
 @router.get("/scenarios", response_model=list[ScenarioPreset])
-def list_scenarios(seed_dir: str = DEFAULT_SEED_DIR):
+def list_scenarios(region: str = DEFAULT_REGION):
     """List available scenario presets for a region."""
-    validated = _validate_seed_dir(seed_dir)
+    seed_dir = _region_to_seed_dir(region)
     try:
-        loader = SeedDataLoader(seed_dir=validated)
+        loader = SeedDataLoader(seed_dir=seed_dir)
         return loader.load_scenario_presets()
     except SeedDataError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

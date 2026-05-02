@@ -65,7 +65,7 @@ function ResultsPanelContent(): React.ReactElement {
     );
   }
 
-  const { summary, routes, zones, evacuation_ordering } = currentResults;
+  const { routes, zones, evacuation_ordering } = currentResults;
 
   // Best optimized route overall
   const bestRoute = routes
