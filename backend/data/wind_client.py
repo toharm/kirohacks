@@ -7,6 +7,7 @@ Supports manual override to skip API calls entirely.
 
 import logging
 import re
+from dataclasses import dataclass
 
 import requests
 
@@ -83,6 +84,14 @@ def compass_to_degrees(direction: str) -> float:
     return COMPASS_TO_DEGREES[key]
 
 
+@dataclass
+class WindFetchResult:
+    """Result of a wind fetch, including the data source."""
+
+    conditions: WindConditions
+    source: str  # "nws_live", "fallback", or "manual_override"
+
+
 # ---------------------------------------------------------------------------
 # NWS Wind Client
 # ---------------------------------------------------------------------------
@@ -114,7 +123,7 @@ class NWSWindClient:
         lat: float,
         lon: float,
         override: WindConditions | None = None,
-    ) -> WindConditions:
+    ) -> WindFetchResult:
         """Fetch current wind conditions for a location.
 
         Args:
@@ -123,15 +132,15 @@ class NWSWindClient:
             override: If provided, returned directly without any API call.
 
         Returns:
-            A ``WindConditions`` instance with current wind data, or
-            ``FALLBACK_WIND`` if the API call fails.
+            A ``WindFetchResult`` with conditions and source indicator.
         """
         if override is not None:
-            return override
+            return WindFetchResult(conditions=override, source="manual_override")
 
         try:
             grid_id, grid_x, grid_y = self._resolve_grid(lat, lon)
-            return self._fetch_forecast(grid_id, grid_x, grid_y)
+            conditions = self._fetch_forecast(grid_id, grid_x, grid_y)
+            return WindFetchResult(conditions=conditions, source="nws_live")
         except Exception as exc:
             logger.warning(
                 "NWS wind fetch failed for (%.4f, %.4f): %s. "
@@ -140,7 +149,7 @@ class NWSWindClient:
                 lon,
                 exc,
             )
-            return self.FALLBACK_WIND
+            return WindFetchResult(conditions=self.FALLBACK_WIND, source="fallback")
 
     # ------------------------------------------------------------------
     # Internal helpers

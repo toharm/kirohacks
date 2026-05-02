@@ -1,6 +1,8 @@
 """FastAPI endpoint definitions."""
 
-from fastapi import APIRouter, HTTPException
+from pathlib import Path
+
+from fastapi import APIRouter, HTTPException, Query
 
 from backend.data.loader import SeedDataLoader, SeedDataError
 from backend.data.wind_client import NWSWindClient
@@ -19,12 +21,26 @@ from backend.simulation.fire_spread import FireSpreadEngine
 
 router = APIRouter()
 
+ALLOWED_SEED_BASE = Path("backend/data/seed/").resolve()
+DEFAULT_SEED_DIR = "backend/data/seed/paradise-ca/"
+
+
+def _validate_seed_dir(seed_dir: str) -> str:
+    """Validate seed_dir stays within the allowed base directory."""
+    resolved = Path(seed_dir).resolve()
+    if not str(resolved).startswith(str(ALLOWED_SEED_BASE)):
+        raise HTTPException(
+            status_code=400,
+            detail="seed_dir must be within backend/data/seed/",
+        )
+    return str(resolved)
+
 
 @router.post("/simulate", response_model=SimulationResponse)
 def simulate(req: SimulationRequest):
     """Run a full Monte Carlo wildfire simulation."""
     # Load region dataset
-    seed_dir = req.seed_dir or "backend/data/seed/paradise-ca/"
+    seed_dir = _validate_seed_dir(req.seed_dir or DEFAULT_SEED_DIR)
     try:
         loader = SeedDataLoader(seed_dir=seed_dir)
         data = loader.load_all()
@@ -82,7 +98,6 @@ def simulate(req: SimulationRequest):
     zone_results = []
     for zr in result.zone_results:
         zone = zone_map[zr.zone_id]
-        failure_pct = ((zr.total_runs - zr.runs_with_route) / zr.total_runs * 100) if zr.total_runs > 0 else 100.0
 
         baseline_route = RouteResult(
             route_id=f"{zr.zone_id}-baseline",
@@ -91,21 +106,37 @@ def simulate(req: SimulationRequest):
             path_coords=zr.baseline_route.path_coords if zr.baseline_route else [],
             node_ids=zr.baseline_route.node_ids if zr.baseline_route else [],
             total_travel_time_min=zr.baseline_route.total_travel_time if zr.baseline_route else 0.0,
-            viability_score=(zr.runs_with_route / zr.total_runs * 100) if zr.total_runs > 0 else 0.0,
+            viability_score=zr.viability_score,
             strategy="baseline",
         )
+
+        optimized_route = None
+        if zr.optimized_route and zr.optimized_route.node_ids:
+            optimized_route = RouteResult(
+                route_id=f"{zr.zone_id}-optimized",
+                zone_id=zr.zone_id,
+                shelter_id=zr.optimized_route.shelter_id,
+                path_coords=zr.optimized_route.path_coords,
+                node_ids=zr.optimized_route.node_ids,
+                total_travel_time_min=zr.optimized_route.total_travel_time,
+                viability_score=zr.viability_score,
+                strategy="optimized",
+            )
 
         zone_results.append(ZoneResult(
             zone_id=zr.zone_id,
             population=zone.population,
             evacuation_priority_score=zone.evacuation_priority_weight,
-            failure_risk_pct=failure_pct,
+            cutoff_time=zr.cutoff_time,
+            failure_risk_pct=zr.failure_risk_pct,
             baseline_route=baseline_route,
+            optimized_route=optimized_route,
             geometry=zone.geometry,
         ))
 
-    # Sort by priority descending for evacuation ordering
-    zone_results.sort(key=lambda z: z.evacuation_priority_score, reverse=True)
+    # Fire-aware evacuation ordering: sort by failure risk descending (most urgent first),
+    # then by cutoff time ascending (least time to evacuate first)
+    zone_results.sort(key=lambda z: (-z.failure_risk_pct, z.cutoff_time or 999))
     evacuation_ordering = [z.zone_id for z in zone_results]
 
     return SimulationResponse(
@@ -132,23 +163,17 @@ def simulate(req: SimulationRequest):
 def get_wind(lat: float, lon: float):
     """Fetch current wind conditions for a location from NWS."""
     client = NWSWindClient()
-    wind = client.fetch(lat=lat, lon=lon)
+    result = client.fetch(lat=lat, lon=lon)
 
-    # Determine source based on whether we got fallback
-    is_fallback = (
-        wind.wind_speed_mph == client.FALLBACK_WIND.wind_speed_mph
-        and wind.wind_direction_deg == client.FALLBACK_WIND.wind_direction_deg
-    )
-    source = "fallback" if is_fallback else "nws_live"
-
-    return WindResponse(conditions=wind, source=source)
+    return WindResponse(conditions=result.conditions, source=result.source)
 
 
 @router.get("/scenarios", response_model=list[ScenarioPreset])
-def list_scenarios(seed_dir: str = "backend/data/seed/paradise-ca/"):
+def list_scenarios(seed_dir: str = DEFAULT_SEED_DIR):
     """List available scenario presets for a region."""
+    validated = _validate_seed_dir(seed_dir)
     try:
-        loader = SeedDataLoader(seed_dir=seed_dir)
+        loader = SeedDataLoader(seed_dir=validated)
         return loader.load_scenario_presets()
     except SeedDataError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

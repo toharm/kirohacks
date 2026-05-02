@@ -63,7 +63,8 @@ def main(argv=None):
         relative_humidity=args.humidity,
     )
     client = NWSWindClient()
-    wind = client.fetch(lat=lat, lon=lon, override=override)
+    wind_result = client.fetch(lat=lat, lon=lon, override=override)
+    wind = wind_result.conditions
     print(f"  Wind: {wind.wind_speed_mph} mph @ {wind.wind_direction_deg}°, humidity {wind.relative_humidity}%")
 
     # 3. Run Monte Carlo engine
@@ -99,9 +100,15 @@ def main(argv=None):
                 "zone_id": zr.zone_id,
                 "runs_with_route": zr.runs_with_route,
                 "total_runs": zr.total_runs,
+                "viability_score": zr.viability_score,
+                "cutoff_time": zr.cutoff_time,
+                "failure_risk_pct": zr.failure_risk_pct,
                 "has_baseline_route": zr.baseline_route is not None,
                 "baseline_travel_time": zr.baseline_route.total_travel_time if zr.baseline_route else None,
                 "baseline_shelter": zr.baseline_route.shelter_id if zr.baseline_route else None,
+                "has_optimized_route": zr.optimized_route is not None,
+                "optimized_travel_time": zr.optimized_route.total_travel_time if zr.optimized_route else None,
+                "optimized_shelter": zr.optimized_route.shelter_id if zr.optimized_route else None,
             }
             for zr in result.zone_results
         ],
@@ -120,7 +127,9 @@ def main(argv=None):
     for zr in result.zone_results:
         route_pct = (zr.runs_with_route / zr.total_runs * 100) if zr.total_runs > 0 else 0
         travel = f"{zr.baseline_route.total_travel_time:.1f} min → {zr.baseline_route.shelter_id}" if zr.baseline_route else "no route"
-        print(f"  {zr.zone_id}: {route_pct:.0f}% runs with route, {travel}")
+        cutoff = f"cutoff={zr.cutoff_time}min" if zr.cutoff_time is not None else "no cutoff"
+        opt = f"opt={zr.optimized_route.total_travel_time:.1f}min" if zr.optimized_route else "no opt"
+        print(f"  {zr.zone_id}: viability={zr.viability_score:.0f}%, {cutoff}, {travel}, {opt}")
 
     return 0
 

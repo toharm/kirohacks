@@ -111,10 +111,10 @@ class GridBounds(BaseModel):
 class WindConditions(BaseModel):
     """Parsed wind conditions from NWS or manual override."""
 
-    wind_speed_mph: float = Field(..., description="Wind speed in mph")
-    wind_direction_deg: float = Field(..., description="Wind direction in degrees")
-    wind_gust_mph: float = Field(..., description="Wind gust speed in mph")
-    relative_humidity: float = Field(..., description="Relative humidity percentage")
+    wind_speed_mph: float = Field(..., ge=0, le=200, description="Wind speed in mph")
+    wind_direction_deg: float = Field(..., ge=0, lt=360, description="Wind direction in degrees")
+    wind_gust_mph: float = Field(..., ge=0, le=300, description="Wind gust speed in mph")
+    relative_humidity: float = Field(..., ge=0, le=100, description="Relative humidity percentage")
 
 
 class Zone(BaseModel):

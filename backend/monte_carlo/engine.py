@@ -25,7 +25,7 @@ import networkx as nx
 import numpy as np
 
 from backend.evacuation.router import BaselineRouteResult, EvacuationRouter
-from backend.models.schemas import ArrivalTimeStats, BurnProbabilityMap, GridBounds, Shelter, Zone
+from backend.models.schemas import ArrivalTimeStats, BurnProbabilityMap, CostWeights, GridBounds, Shelter, Zone
 from backend.simulation.fire_spread import FireSpreadEngine
 
 logger = logging.getLogger(__name__)
@@ -60,8 +60,12 @@ class ZoneMCResult:
 
     zone_id: str
     baseline_route: BaselineRouteResult | None
+    optimized_route: BaselineRouteResult | None
     runs_with_route: int
     total_runs: int
+    viability_score: float  # % of runs where route completes before fire
+    cutoff_time: int | None  # latest safe start timestep (viability > 50%)
+    failure_risk_pct: float  # % of runs with no viable route
 
 
 @dataclass
@@ -378,36 +382,146 @@ class MonteCarloEngine:
         single_run_results: list[SingleRunResult],
         total_runs: int,
     ) -> list[ZoneMCResult]:
-        """Aggregate per-zone route results across all runs.
+        """Aggregate per-zone route results with viability scoring.
+
+        Viability: a route is viable in a given run if the evacuee reaches
+        every node on the path before fire does (accounting for civ_delay).
+
+        Cutoff time: the latest start timestep where viability > 50%.
 
         Args:
             single_run_results: List of SingleRunResult from each completed run.
             total_runs: Total number of completed runs.
 
         Returns:
-            List of ZoneMCResult with aggregated per-zone data.
+            List of ZoneMCResult with viability scores and cutoff times.
         """
+        grid_bounds = self.fire_engine.grid_bounds
+        rows, cols = self.fire_engine.rows, self.fire_engine.cols
+        lat_range = grid_bounds.max_lat - grid_bounds.min_lat
+        lon_range = grid_bounds.max_lon - grid_bounds.min_lon
+
         zone_ids = [z.zone_id for z in self.zones]
         zone_route_counts: dict[str, int] = {zid: 0 for zid in zone_ids}
+        zone_viable_counts: dict[str, int] = {zid: 0 for zid in zone_ids}
         zone_best_route: dict[str, BaselineRouteResult | None] = {zid: None for zid in zone_ids}
+
+        # For cutoff time: track viability at different delay offsets
+        max_delay_check = 60  # check start delays 0..59 minutes
+        zone_viable_at_delay: dict[str, list[int]] = {
+            zid: [0] * max_delay_check for zid in zone_ids
+        }
 
         for run_result in single_run_results:
             for zone_id, route in run_result.zone_routes.items():
-                if route.failure_risk_pct < 100.0:
-                    zone_route_counts[zone_id] = zone_route_counts.get(zone_id, 0) + 1
-                    # Keep the first successful route as the representative baseline
-                    if zone_best_route.get(zone_id) is None:
-                        zone_best_route[zone_id] = route
+                if route.failure_risk_pct >= 100.0:
+                    continue
+                zone_route_counts[zone_id] = zone_route_counts.get(zone_id, 0) + 1
+                if zone_best_route.get(zone_id) is None:
+                    zone_best_route[zone_id] = route
+
+                # Check viability: does evacuee beat fire at every node?
+                viable = self._check_route_viability(
+                    route, run_result.ignition_times, run_result.civ_delay_min,
+                    grid_bounds, rows, cols, lat_range, lon_range,
+                )
+                if viable:
+                    zone_viable_counts[zone_id] = zone_viable_counts.get(zone_id, 0) + 1
+
+                # Check viability at increasing start delays for cutoff
+                for delay in range(max_delay_check):
+                    total_delay = run_result.civ_delay_min + delay
+                    v = self._check_route_viability(
+                        route, run_result.ignition_times, total_delay,
+                        grid_bounds, rows, cols, lat_range, lon_range,
+                    )
+                    if v:
+                        zone_viable_at_delay[zone_id][delay] += 1
+
+        # Compute optimized routes using aggregated burn probability
+        burn_prob_data = np.zeros((rows, cols), dtype=np.float64)
+        if total_runs > 0 and single_run_results:
+            for sr in single_run_results:
+                burn_prob_data += sr.burn_mask.astype(np.float64)
+            burn_prob_data /= total_runs
+
+        opt_router = EvacuationRouter(self.road_graph, self.zones, self.shelters)
+        optimized_routes = opt_router.compute_optimized_routes(burn_prob_data, grid_bounds)
 
         results: list[ZoneMCResult] = []
         for zone_id in zone_ids:
+            viable = zone_viable_counts.get(zone_id, 0)
+            viability_score = (viable / total_runs * 100.0) if total_runs > 0 else 0.0
+            failure_risk = 100.0 - viability_score
+
+            # Cutoff: latest delay where viability > 50%
+            cutoff: int | None = None
+            for delay in range(max_delay_check):
+                delay_viable = zone_viable_at_delay[zone_id][delay]
+                if total_runs > 0 and (delay_viable / total_runs * 100.0) > 50.0:
+                    cutoff = delay
+                else:
+                    break
+
             results.append(
                 ZoneMCResult(
                     zone_id=zone_id,
                     baseline_route=zone_best_route.get(zone_id),
+                    optimized_route=optimized_routes.get(zone_id),
                     runs_with_route=zone_route_counts.get(zone_id, 0),
                     total_runs=total_runs,
+                    viability_score=viability_score,
+                    cutoff_time=cutoff,
+                    failure_risk_pct=failure_risk,
                 )
             )
 
         return results
+
+    def _check_route_viability(
+        self,
+        route: BaselineRouteResult,
+        ignition_times: np.ndarray,
+        start_delay: float,
+        grid_bounds: GridBounds,
+        rows: int,
+        cols: int,
+        lat_range: float,
+        lon_range: float,
+    ) -> bool:
+        """Check if an evacuee on this route beats fire at every node.
+
+        The evacuee starts at start_delay minutes, then accumulates
+        travel_time along each edge. At each node, if fire has arrived
+        (ignition_time <= evacuee_arrival_time), the route is not viable.
+        """
+        if not route.node_ids:
+            return False
+
+        graph = self.road_graph
+        cumulative_time = start_delay
+
+        for i, node_id in enumerate(route.node_ids):
+            if i > 0:
+                prev = route.node_ids[i - 1]
+                edge_data = graph[prev][node_id] if graph.has_edge(prev, node_id) else {}
+                cumulative_time += edge_data.get("travel_time", 0.0)
+
+            # Map node to grid cell
+            attrs = graph.nodes[node_id]
+            lat = attrs.get("lat")
+            lon = attrs.get("lon")
+            if lat is None or lon is None:
+                continue
+
+            row_frac = (grid_bounds.max_lat - lat) / lat_range if lat_range > 0 else 0.0
+            col_frac = (lon - grid_bounds.min_lon) / lon_range if lon_range > 0 else 0.0
+            r = max(0, min(int(row_frac * (rows - 1)), rows - 1))
+            c = max(0, min(int(col_frac * (cols - 1)), cols - 1))
+
+            fire_arrival = ignition_times[r, c]
+            # If fire arrived at this cell before or when evacuee arrives, not viable
+            if fire_arrival >= 0 and fire_arrival <= cumulative_time:
+                return False
+
+        return True
