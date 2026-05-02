@@ -20,6 +20,7 @@ The interface must feel serious, operational, and scientifically credible — no
 - **Burn_Heatmap_Layer**: A map overlay rendering the Burn_Probability_Map as a continuous color gradient from transparent (0.0) through yellow/orange to deep red (1.0).
 - **Route_Overlay_Layer**: Map polylines showing evacuation routes colored by viability score — cyan/blue for high viability, orange/red for low viability.
 - **Zone_Choropleth_Layer**: Map polygons showing census block groups colored by evacuation priority score and cutoff time urgency.
+- **Elevation_Layer**: A terrain visualization layer using DEM (Digital Elevation Model) tiles to render hillshade and optional 3D terrain exaggeration, providing topographic context for fire spread and evacuation route analysis.
 - **Wind_Rose**: A compact directional indicator showing current wind speed, direction, and gust values with a visual compass rose.
 - **Simulation_Progress**: A progress indicator showing Monte Carlo run completion (e.g., "342 / 500 runs") with estimated time remaining.
 - **Comparison_View**: A split or tabbed view showing baseline vs. optimized evacuation strategy metrics side-by-side for the same scenario.
@@ -45,18 +46,20 @@ The interface must feel serious, operational, and scientifically credible — no
 
 ### Requirement 2: Interactive Map with Geospatial Layers
 
-**User Story:** As an evacuation planner, I want an interactive map of the Paradise, CA region with toggleable data layers, so that I can visualize fire spread, routes, and zones spatially.
+**User Story:** As an evacuation planner, I want an interactive map of the selected region with toggleable data layers including terrain elevation, so that I can visualize fire spread, topography, routes, and zones spatially.
 
 #### Acceptance Criteria
 
-1. THE Map_View SHALL render an interactive map using Mapbox GL JS (with free tier token) or Leaflet with a dark basemap style, centered on the Paradise, CA demo region (39.7596°N, -121.6219°W) at zoom level 12.
+1. THE Map_View SHALL render an interactive map using Mapbox GL JS (with free tier token) or Leaflet with a dark basemap style, centered on the default demo region at an appropriate zoom level, and SHALL re-center when the user selects a different region or scenario.
 2. THE Map_View SHALL support click-to-select ignition point, placing a pulsing marker at the clicked coordinates and populating the Control_Panel ignition fields with the selected lat/lon.
 3. THE Map_View SHALL render the Burn_Heatmap_Layer as a WebGL-accelerated raster overlay using a sequential color ramp: transparent (0.0) → yellow (0.3) → orange (0.6) → red (0.8) → deep crimson (1.0), with an opacity slider control.
 4. THE Map_View SHALL render the Route_Overlay_Layer as polylines with color encoding viability score: cyan (#00E5FF) for scores above 80%, yellow (#FFD600) for 50–80%, and red (#FF1744) for below 50%, with line width proportional to road capacity.
 5. THE Map_View SHALL render the Zone_Choropleth_Layer as semi-transparent polygons with fill color encoding evacuation urgency: green (cutoff > 30 min) → yellow (15–30 min) → orange (5–15 min) → red (< 5 min).
-6. THE Map_View SHALL provide a layer toggle control allowing the user to independently show/hide the Burn_Heatmap_Layer, Route_Overlay_Layer, Zone_Choropleth_Layer, shelter markers, and the Camp Fire perimeter outline.
-7. THE Map_View SHALL render shelter locations as distinct markers with capacity labels and accessibility icons.
-8. WHEN the user hovers over a zone polygon, THE Map_View SHALL display a tooltip showing zone_id, population, cutoff_time, evacuation_priority_score, and failure_risk_percentage.
+6. THE Map_View SHALL render an Elevation_Layer using Mapbox Terrain-DEM or equivalent DEM tiles to display a 3D terrain elevation map with hillshade shading, toggleable independently from other layers, providing topographic context for fire spread behavior and evacuation route difficulty.
+7. THE Map_View SHALL provide a layer toggle control allowing the user to independently show/hide the Burn_Heatmap_Layer, Route_Overlay_Layer, Zone_Choropleth_Layer, Elevation_Layer, shelter markers, and the fire perimeter outline.
+8. THE Map_View SHALL render shelter locations as distinct markers with capacity labels and accessibility icons.
+9. WHEN the user hovers over a zone polygon, THE Map_View SHALL display a tooltip showing zone_id, population, cutoff_time, evacuation_priority_score, and failure_risk_percentage.
+10. THE Elevation_Layer SHALL support an optional 3D terrain exaggeration mode (1×–3× exaggeration factor) to make topographic features more visible during demo presentations.
 
 ### Requirement 3: Simulation Control Panel
 
