@@ -30,7 +30,7 @@ Phase 3: Convergence (sequential, needs all lanes)
 
 ### Phase 1 — Scaffolding (All Team Members)
 
-- [ ] 1. Scaffold project structure and dependencies
+- [x] 1. Scaffold project structure and dependencies
   - Create `/backend` directory with modules: `simulation/`, `monte_carlo/`, `evacuation/`, `data/`, `api/`, `models/`
   - Add `__init__.py` files for all packages
   - Create `requirements.txt` with pinned dependencies: numpy, scipy, networkx, fastapi, uvicorn, pydantic, shapely, requests, pytest, hypothesis, pytest-cov, httpx
