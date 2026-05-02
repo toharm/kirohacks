@@ -2,16 +2,16 @@
 
 ## Overview
 
-EvacuAI is a computation-first Python backend that simulates wildfire spread under uncertainty and evaluates evacuation route viability. The system targets first responders and emergency planners working with the Paradise, CA (Camp Fire 2018) demo region.
+EvacuAI is a computation-first Python backend that simulates wildfire spread under uncertainty and evaluates evacuation route viability. The architecture is region-agnostic: any geographic region that provides a conformant Region Dataset can be loaded and simulated. Paradise, CA (Camp Fire 2018) ships as the bundled default demo region.
 
 The backend is structured as a pipeline with four stages:
 
-1. **Data Loading** — Ingest pre-bundled seed data (fuel grid, road network, zones, shelters) and optionally fetch live wind from NWS.
+1. **Data Loading** — Ingest a Region Dataset from a configurable directory (fuel grid, road network, zones, shelters, region config) and optionally fetch live wind from NWS.
 2. **Fire Simulation** — Run a simplified Rothermel fire spread model on a 2D NumPy grid with 100m cells and 1-minute timesteps.
 3. **Monte Carlo Aggregation** — Execute ~500 stochastic simulation runs, sampling wind, delay, and road closure parameters from defined distributions, then aggregate into burn probability maps and arrival time statistics.
 4. **Evacuation Optimization** — Compute baseline (Dijkstra shortest-path) and optimized (multi-factor cost function) evacuation routes per zone on a NetworkX road graph, scoring route viability across Monte Carlo runs.
 
-The system exposes two interfaces: a CLI entry point (`python main.py`) for standalone execution and a synchronous FastAPI REST API for frontend integration. Both share the same Pydantic schema definitions and pipeline logic.
+The system exposes two interfaces: a CLI entry point (`python main.py`) for standalone execution and a synchronous FastAPI REST API for frontend integration. Both share the same Pydantic schema definitions and pipeline logic. Both accept a configurable `seed_dir` parameter to specify which Region Dataset to load.
 
 ### Key Design Decisions
 
@@ -19,10 +19,12 @@ The system exposes two interfaces: a CLI entry point (`python main.py`) for stan
 |---|---|
 | Synchronous API (no async/celery) | Hackathon scope — simplicity over scalability. ~500 runs on a small grid complete in seconds. |
 | NumPy vectorized grid operations | Performance-critical inner loop. Vectorized spread computation avoids Python-level cell iteration. |
+| Region-agnostic architecture with configurable seed_dir | Any region providing a conformant dataset can be simulated. Paradise ships as the default. |
 | Pre-bundled seed data with single live API call (NWS wind) | Demo reliability — only wind data is fetched live. Everything else is local. |
 | Pydantic for all data contracts | Strict validation at API boundaries and CLI output. Shared between API and CLI. |
-| NetworkX DiGraph for road network | Standard graph library with built-in Dijkstra. Sufficient for the ~5k-edge Paradise road network. |
+| NetworkX DiGraph for road network | Standard graph library with built-in Dijkstra. Sufficient for regional road networks. |
 | SciPy for stochastic sampling | Provides Normal, Uniform, Beta distributions with seed-based reproducibility. |
+| Worldwide lat/lon validation on API | API accepts any valid coordinate; region-specific bounds come from region_config.json at runtime. |
 
 ---
 
@@ -33,12 +35,12 @@ The system exposes two interfaces: a CLI entry point (`python main.py`) for stan
 ```mermaid
 graph TB
     subgraph "Entry Points"
-        CLI["CLI (main.py)"]
-        API["FastAPI (api/app.py)"]
+        CLI["CLI (main.py)<br/>--seed-dir arg"]
+        API["FastAPI (api/app.py)<br/>optional seed_dir param"]
     end
 
     subgraph "Core Pipeline"
-        DL["Data Loader"]
+        DL["Data Loader<br/>(configurable seed_dir)"]
         SIM["Simulation Engine<br/>(Rothermel Fire Spread)"]
         MC["Monte Carlo Engine<br/>(~500 runs)"]
         EVAC["Evacuation Optimizer<br/>(Baseline + Optimized)"]
@@ -48,10 +50,11 @@ graph TB
         NWS["NWS api.weather.gov"]
     end
 
-    subgraph "Seed Data (/backend/data/seed/)"
+    subgraph "Region Dataset (/backend/data/seed/{region}/)"
+        RC["region_config.json"]
         FG["fuel_grid.npy"]
         GB["grid_bounds.json"]
-        CP["camp_fire_perimeter.geojson"]
+        FP["fire_perimeter.geojson (optional)"]
         RG["road_graph.json"]
         ZN["zones.geojson"]
         SH["shelters.json"]
@@ -65,6 +68,7 @@ graph TB
     CLI --> DL
     API --> DL
     API --> NWS
+    DL --> RC
     DL --> SIM
     SIM --> MC
     MC --> EVAC
@@ -72,9 +76,10 @@ graph TB
     SCHEMA --> CLI
     SCHEMA --> API
 
+    RC --> DL
     FG --> DL
     GB --> DL
-    CP --> DL
+    FP --> DL
     RG --> DL
     ZN --> DL
     SH --> DL
@@ -94,9 +99,11 @@ sequenceDiagram
     participant Evac as Evacuation Optimizer
     participant Out as Serializer
 
-    User->>Entry: Submit scenario (ignition, wind, runs)
-    Entry->>Loader: Load seed data
-    Loader-->>Entry: fuel_grid, road_graph, zones, shelters
+    User->>Entry: Submit scenario (ignition, wind, runs, seed_dir?)
+    Entry->>Loader: Load Region Dataset (seed_dir or default)
+    Loader->>Loader: Validate region_config.json
+    Loader->>Loader: Validate all required files present
+    Loader-->>Entry: fuel_grid, road_graph, zones, shelters, region_config
     
     alt Live wind fetch (API mode)
         Entry->>Wind: Fetch wind for (lat, lon)
@@ -133,7 +140,7 @@ sequenceDiagram
 
 ```
 /backend
-├── main.py                          # CLI entry point
+├── main.py                          # CLI entry point (--seed-dir arg)
 ├── requirements.txt                 # Python dependencies
 ├── __init__.py
 ├── simulation/
@@ -147,16 +154,18 @@ sequenceDiagram
 │   └── router.py                    # Baseline + optimized routing
 ├── data/
 │   ├── __init__.py
-│   ├── loader.py                    # Seed data loading & validation
+│   ├── loader.py                    # Region Dataset loading & validation
 │   ├── wind_client.py               # NWS API client
-│   └── seed/                        # Pre-bundled data files
-│       ├── fuel_grid.npy
-│       ├── grid_bounds.json
-│       ├── camp_fire_perimeter.geojson
-│       ├── road_graph.json
-│       ├── zones.geojson
-│       ├── shelters.json
-│       └── scenario_presets.json
+│   └── seed/                        # Pre-bundled Region Datasets
+│       └── paradise-ca/             # Default bundled region
+│           ├── region_config.json   # Region metadata & config
+│           ├── fuel_grid.npy
+│           ├── grid_bounds.json
+│           ├── camp_fire_perimeter.geojson
+│           ├── road_graph.json
+│           ├── zones.geojson
+│           ├── shelters.json
+│           └── scenario_presets.json
 ├── api/
 │   ├── __init__.py
 │   ├── app.py                       # FastAPI application factory
@@ -312,23 +321,67 @@ class EvacuationRouter:
 
 ```python
 class SeedDataLoader:
-    """Loads and validates all pre-bundled seed data files."""
+    """Loads and validates a Region Dataset from a configurable directory."""
 
-    def __init__(self, seed_dir: str = "backend/data/seed") -> None: ...
+    # Required files that must be present in every Region Dataset
+    REQUIRED_FILES = [
+        "region_config.json",
+        "fuel_grid.npy",
+        "grid_bounds.json",
+        "road_graph.json",
+        "zones.geojson",
+        "shelters.json",
+        "scenario_presets.json",
+    ]
+
+    def __init__(self, seed_dir: str = "backend/data/seed/paradise-ca/") -> None:
+        """
+        Args:
+            seed_dir: Path to the Region Dataset directory. Defaults to the
+                      bundled Paradise, CA dataset.
+        """
 
     def load_all(self) -> SeedData:
         """
-        Load all seed files. Raises SeedDataError with file path
-        and problem description if any file is missing or malformed.
+        Validate and load all Region Dataset files.
+
+        1. Validate region_config.json exists and conforms to schema.
+        2. Validate all required files are present.
+        3. Load each file with type-specific validation.
+
+        Raises SeedDataError with file path and problem description
+        if any file is missing or malformed.
 
         Returns:
-            SeedData containing fuel_grid, grid_bounds, burn_perimeter,
-            road_graph, zones, shelters, scenario_presets.
+            SeedData containing region_config, fuel_grid, grid_bounds,
+            burn_perimeter (if present), road_graph, zones, shelters,
+            scenario_presets.
+        """
+
+    def load_region_config(self) -> RegionConfig:
+        """
+        Load and validate region_config.json.
+
+        Validates required fields: region_name, bounding_box,
+        default_ignition_point, fire_perimeter_file.
+
+        Raises SeedDataError if file is missing or schema validation fails.
+        """
+
+    def validate_required_files(self) -> None:
+        """
+        Check that all REQUIRED_FILES exist in seed_dir.
+        Raises SeedDataError listing all missing files if any are absent.
         """
 
     def load_fuel_grid(self) -> np.ndarray: ...
     def load_grid_bounds(self) -> GridBounds: ...
-    def load_fire_perimeter(self) -> np.ndarray: ...
+    def load_fire_perimeter(self, filename: str) -> np.ndarray:
+        """
+        Load fire perimeter from the filename specified in region_config.json.
+        Args:
+            filename: The perimeter GeoJSON filename from region_config.fire_perimeter_file.
+        """
     def load_road_graph(self) -> nx.DiGraph: ...
     def load_zones(self) -> list[Zone]: ...
     def load_shelters(self) -> list[Shelter]: ...
@@ -357,6 +410,8 @@ class NWSWindClient:
         """
         If override is provided, return it directly.
         Otherwise fetch from NWS. On failure, return FALLBACK_WIND and log warning.
+        Works for any valid lat/lon worldwide (NWS coverage is US-only;
+        non-US coordinates will trigger fallback).
         """
 ```
 
@@ -365,25 +420,35 @@ class NWSWindClient:
 ```python
 # POST /api/simulate
 @router.post("/api/simulate", response_model=SimulationResponse)
-def simulate(request: SimulationRequest) -> SimulationResponse: ...
+def simulate(request: SimulationRequest) -> SimulationResponse:
+    """
+    Run full simulation pipeline.
+    Accepts optional seed_dir in request body to specify Region Dataset.
+    Defaults to bundled Paradise, CA dataset.
+    """
 
 # GET /api/wind?lat={lat}&lon={lon}
 @router.get("/api/wind", response_model=WindResponse)
 def get_wind(lat: float, lon: float) -> WindResponse: ...
 
-# GET /api/scenarios
+# GET /api/scenarios?seed_dir={seed_dir}
 @router.get("/api/scenarios", response_model=list[ScenarioPreset])
-def get_scenarios() -> list[ScenarioPreset]: ...
+def get_scenarios(seed_dir: str | None = None) -> list[ScenarioPreset]:
+    """
+    Return scenario presets from the specified Region Dataset.
+    Defaults to bundled Paradise, CA dataset if seed_dir is not provided.
+    """
 ```
 
 #### 7. `main.py` — CLI Entry Point
 
 ```python
 # python main.py --lat 39.7596 --lon -121.6219 --wind-speed 14 \
-#                --wind-dir 225 --humidity 18 --runs 500 --output results/
+#                --wind-dir 225 --humidity 18 --runs 500 \
+#                --seed-dir backend/data/seed/paradise-ca/ --output results/
 ```
 
-Accepts CLI arguments via `argparse`. Runs the full pipeline and writes JSON output + stdout summary.
+Accepts CLI arguments via `argparse`. The `--seed-dir` argument specifies which Region Dataset to load (defaults to `backend/data/seed/paradise-ca/`). Runs the full pipeline and writes JSON output + stdout summary including the region name from `region_config.json`.
 
 ---
 
@@ -395,12 +460,36 @@ Accepts CLI arguments via `argparse`. Runs the full pipeline and writes JSON out
 from pydantic import BaseModel, Field
 from typing import Optional
 
+# --- Region Configuration ---
+
+class BoundingBox(BaseModel):
+    """Geographic bounding box for a region."""
+    min_lat: float
+    max_lat: float
+    min_lon: float
+    max_lon: float
+
+
+class DefaultIgnitionPoint(BaseModel):
+    """Default ignition point for a region."""
+    lat: float
+    lon: float
+
+
+class RegionConfig(BaseModel):
+    """Region metadata loaded from region_config.json."""
+    region_name: str
+    bounding_box: BoundingBox
+    default_ignition_point: DefaultIgnitionPoint
+    fire_perimeter_file: Optional[str] = None
+
+
 # --- Request Models ---
 
 class SimulationRequest(BaseModel):
     """Request body for POST /api/simulate."""
-    ignition_lat: float = Field(..., ge=39.0, le=40.5, description="Ignition latitude")
-    ignition_lon: float = Field(..., ge=-122.5, le=-121.0, description="Ignition longitude")
+    ignition_lat: float = Field(..., ge=-90.0, le=90.0, description="Ignition latitude (worldwide)")
+    ignition_lon: float = Field(..., ge=-180.0, le=180.0, description="Ignition longitude (worldwide)")
     wind_speed_mph: float = Field(14.0, ge=0, le=100, description="Wind speed in mph")
     wind_direction_deg: float = Field(225.0, ge=0, lt=360, description="Wind direction in degrees")
     wind_gust_mph: float = Field(20.0, ge=0, le=150, description="Wind gust in mph")
@@ -409,6 +498,7 @@ class SimulationRequest(BaseModel):
     max_timesteps: int = Field(180, ge=1, le=1440, description="Max simulation timesteps")
     scenario_preset: Optional[str] = Field(None, description="Named scenario preset")
     seed: Optional[int] = Field(None, description="Random seed for reproducibility")
+    seed_dir: Optional[str] = Field(None, description="Path to Region Dataset directory")
 
 
 # --- Core Data Models ---
@@ -519,6 +609,7 @@ class ZoneResult(BaseModel):
 
 class SimulationResponse(BaseModel):
     """Full response for POST /api/simulate."""
+    region_name: str
     scenario: str
     num_runs: int
     max_timesteps: int
@@ -558,17 +649,53 @@ class WindResponse(BaseModel):
 
 ### Seed Data File Formats
 
+#### Region Dataset Directory Structure
+
+Each Region Dataset is a self-contained directory with the following structure:
+
+```
+backend/data/seed/{region-name}/
+├── region_config.json          # REQUIRED — region metadata
+├── fuel_grid.npy               # REQUIRED — spread rate multipliers
+├── grid_bounds.json            # REQUIRED — bounding box and cell resolution
+├── road_graph.json             # REQUIRED — road network graph
+├── zones.geojson               # REQUIRED — population zones
+├── shelters.json               # REQUIRED — evacuation shelters
+├── scenario_presets.json       # REQUIRED — named scenario configurations
+└── {fire_perimeter}.geojson    # OPTIONAL — fire perimeter (filename in region_config)
+```
+
+#### File Schemas
+
 | File | Format | Schema |
 |---|---|---|
+| `region_config.json` | JSON | `{ region_name: str, bounding_box: { min_lat, max_lat, min_lon, max_lon }, default_ignition_point: { lat, lon }, fire_perimeter_file: str \| null }` |
 | `fuel_grid.npy` | NumPy binary | float32 array, values 0.0–1.5 |
 | `grid_bounds.json` | JSON | `{ min_lat, max_lat, min_lon, max_lon, cell_size_m, grid_rows, grid_cols }` |
-| `camp_fire_perimeter.geojson` | GeoJSON | FeatureCollection with one Polygon feature |
+| `{fire_perimeter}.geojson` | GeoJSON | FeatureCollection with one Polygon feature (filename from region_config) |
 | `road_graph.json` | JSON (NetworkX node-link) | `{ nodes: [{id, lat, lon}], links: [{source, target, travel_time, capacity, highway}] }` |
 | `zones.geojson` | GeoJSON | FeatureCollection, each feature has population, elderly_pct, disability_pct, evacuation_priority_weight |
 | `shelters.json` | JSON | `[{ shelter_id, name, lat, lon, capacity, accessible }]` |
 | `scenario_presets.json` | JSON | `[{ name, description, ignition_lat, ignition_lon, wind_speed_mph, wind_direction_deg, wind_gust_mph, relative_humidity }]` |
 
+#### `region_config.json` Example (Paradise, CA)
 
+```json
+{
+  "region_name": "Paradise, CA",
+  "bounding_box": {
+    "min_lat": 39.65,
+    "max_lat": 39.90,
+    "min_lon": -121.75,
+    "max_lon": -121.40
+  },
+  "default_ignition_point": {
+    "lat": 39.8103,
+    "lon": -121.4377
+  },
+  "fire_perimeter_file": "camp_fire_perimeter.geojson"
+}
+```
 
 ---
 
@@ -660,19 +787,46 @@ class WindResponse(BaseModel):
 
 ### Property 14: Simulation Output Serialization Round-Trip
 
-*For any* valid SimulationResponse object, serializing to JSON and then deserializing back SHALL produce an equivalent data structure with all fields preserved (burn probability map values, arrival time statistics, route coordinates, zone properties).
+*For any* valid SimulationResponse object, serializing to JSON and then deserializing back SHALL produce an equivalent data structure with all fields preserved (burn probability map values, arrival time statistics, route coordinates, zone properties, region_name).
 
 **Validates: Requirements 10.5**
+
+### Property 15: Region Dataset Validation Completeness
+
+*For any* directory with an arbitrary subset of the required Region Dataset files (region_config.json, fuel_grid.npy, grid_bounds.json, road_graph.json, zones.geojson, shelters.json, scenario_presets.json), the SeedDataLoader validation SHALL raise an error listing exactly the missing files when any required file is absent, and SHALL succeed when all required files are present.
+
+**Validates: Requirements 11.1, 11.4, 11.5**
+
+### Property 16: Region Config Schema Validation
+
+*For any* JSON object, the RegionConfig validator SHALL accept it if and only if it contains all required fields (region_name as string, bounding_box as object with min_lat/max_lat/min_lon/max_lon as floats, default_ignition_point as object with lat/lon as floats, fire_perimeter_file as string or null). Invalid objects SHALL produce a descriptive validation error.
+
+**Validates: Requirements 11.3, 11.6**
+
+### Property 17: Worldwide Coordinate Acceptance
+
+*For any* latitude in [-90.0, 90.0] and longitude in [-180.0, 180.0], the SimulationRequest Pydantic validator SHALL accept the coordinates. *For any* latitude outside [-90.0, 90.0] or longitude outside [-180.0, 180.0], the validator SHALL reject the coordinates with a validation error.
+
+**Validates: Requirements 6.2**
 
 ---
 
 ## Error Handling
 
+### Region Dataset Validation Errors
+
+| Error Condition | Behavior | Error Type |
+|---|---|---|
+| `region_config.json` missing from seed_dir | Raise `SeedDataError` with seed_dir path and "region_config.json not found" message | Fatal — cannot determine region configuration |
+| `region_config.json` malformed or missing required fields | Raise `SeedDataError` with file path and schema validation error details (missing fields, wrong types) | Fatal — cannot configure region |
+| Required Region Dataset file(s) missing | Raise `SeedDataError` listing ALL missing files (not just the first) | Fatal — pipeline cannot proceed |
+| `fire_perimeter_file` specified in region_config but file not found | Raise `SeedDataError` with expected file path | Fatal — cannot load initial fire state |
+| seed_dir path does not exist | Raise `SeedDataError` with path and "directory not found" message | Fatal — no data to load |
+
 ### Seed Data Errors
 
 | Error Condition | Behavior | Error Type |
 |---|---|---|
-| Seed data file missing | Raise `SeedDataError` with file path and "file not found" message | Fatal — pipeline cannot proceed |
 | Seed data file malformed (invalid JSON, wrong dtype) | Raise `SeedDataError` with file path and parsing error details | Fatal — pipeline cannot proceed |
 | Fuel grid values outside [0.0, 1.5] | Raise `SeedDataError` with value range violation details | Fatal — invalid data |
 | Road graph missing required edge attributes | Raise `SeedDataError` identifying missing attributes | Fatal — routing cannot proceed |
@@ -687,6 +841,7 @@ class WindResponse(BaseModel):
 | NWS response missing expected fields | Log warning, return fallback wind |
 | Wind speed string unparseable | Log warning, use fallback value for that field |
 | Manual override provided | Skip API call entirely, use override values |
+| Non-US coordinates (NWS has no coverage) | Log warning, return fallback wind |
 
 ### Simulation Engine Errors
 
@@ -710,6 +865,8 @@ class WindResponse(BaseModel):
 | Error Condition | HTTP Status | Response |
 |---|---|---|
 | Invalid request body (Pydantic validation) | 422 | Pydantic error details with field names and constraints |
+| Invalid seed_dir (directory not found) | 400 | `{"error": "Region dataset not found", "detail": "Directory {seed_dir} does not exist"}` |
+| Region dataset validation failure | 500 | `{"error": "Region dataset validation failed", "detail": "..."}` |
 | Seed data loading failure | 500 | `{"error": "Seed data initialization failed", "detail": "..."}` |
 | Simulation engine error | 500 | `{"error": "Simulation failed", "detail": "..."}` |
 | Wind fetch failure (API mode) | 200 | Returns fallback wind with `source: "fallback"` (not an error to the caller) |
@@ -719,9 +876,11 @@ class WindResponse(BaseModel):
 | Error Condition | Behavior |
 |---|---|
 | Invalid CLI arguments | Print usage help and exit with code 1 |
+| Invalid --seed-dir (directory not found) | Print error message "Region dataset directory not found: {path}" to stderr and exit with code 1 |
+| Region dataset validation failure | Print error message listing missing/invalid files to stderr and exit with code 1 |
 | Seed data loading failure | Print error message to stderr and exit with code 1 |
 | Output directory not writable | Print error message to stderr and exit with code 1 |
-| Simulation completes successfully | Write JSON output, print summary to stdout, exit with code 0 |
+| Simulation completes successfully | Write JSON output, print summary (including region name) to stdout, exit with code 0 |
 
 ---
 
@@ -731,7 +890,7 @@ class WindResponse(BaseModel):
 
 The testing strategy uses a dual approach:
 
-1. **Property-based tests** — Verify universal correctness properties (Properties 1–14) across randomly generated inputs using `hypothesis` (Python PBT library). Each property test runs a minimum of 100 iterations.
+1. **Property-based tests** — Verify universal correctness properties (Properties 1–17) across randomly generated inputs using `hypothesis` (Python PBT library). Each property test runs a minimum of 100 iterations.
 2. **Example-based unit tests** — Verify specific scenarios, edge cases, integration points, and output format compliance using `pytest`.
 
 ### Property-Based Testing Configuration
@@ -759,33 +918,49 @@ The testing strategy uses a dual approach:
 | P12: Cutoff time | `evacuation.router` | Random monotonically decreasing viability curves |
 | P13: Evacuation ordering | `evacuation.router` | Random zone lists with random priority data |
 | P14: Serialization round-trip | `models.schemas` | Hypothesis builds for SimulationResponse |
+| P15: Region dataset validation | `data.loader` | Random subsets of required files in temp directories |
+| P16: Region config schema | `models.schemas` | Random JSON objects with varying field presence/types |
+| P17: Worldwide coordinate acceptance | `models.schemas` | Random lat/lon values inside and outside valid ranges |
 
 ### Unit Test Plan
 
 | Test Area | Tests | Module |
 |---|---|---|
-| Seed data loading | Load each file type, verify structure and types | `data.loader` |
-| Seed data errors | Missing files, malformed JSON, wrong dtypes | `data.loader` |
+| Region config loading | Load region_config.json, verify all fields parsed | `data.loader` |
+| Region dataset validation | Missing files detected, all missing files listed | `data.loader` |
+| Seed data loading | Load each file type from configurable seed_dir, verify structure and types | `data.loader` |
+| Seed data errors | Missing files, malformed JSON, wrong dtypes, invalid region_config | `data.loader` |
+| Configurable seed_dir | SeedDataLoader accepts custom path, defaults to paradise-ca | `data.loader` |
+| Fire perimeter from config | Perimeter filename read from region_config.json | `data.loader` |
 | NWS compass conversion | All 8 compass directions → degrees | `data.wind_client` |
 | NWS fallback behavior | API failure → fallback values returned | `data.wind_client` |
 | NWS manual override | Override skips API call | `data.wind_client` |
 | API endpoint responses | Valid requests return correct schemas | `api.routes` |
-| API validation errors | Invalid payloads return 422 | `api.routes` |
+| API seed_dir parameter | POST /api/simulate accepts optional seed_dir | `api.routes` |
+| API scenarios seed_dir | GET /api/scenarios accepts optional seed_dir query param | `api.routes` |
+| API validation errors | Invalid payloads return 422, out-of-range lat/lon rejected | `api.routes` |
+| API worldwide coordinates | Lat/lon in [-90,90]/[-180,180] accepted | `api.routes` |
 | API CORS headers | CORS middleware present | `api.app` |
-| CLI argument parsing | Various arg combinations accepted | `main` |
-| CLI output format | JSON file written, stdout summary printed | `main` |
-| Demo region defaults | Default bbox, ignition point, presets | config |
-| Scenario presets | 3+ presets with required fields | `data.loader` |
+| CLI argument parsing | Various arg combinations accepted, including --seed-dir | `main` |
+| CLI default region | No --seed-dir defaults to paradise-ca | `main` |
+| CLI output format | JSON file written, stdout summary includes region name | `main` |
+| Demo region defaults | Paradise region_config.json has correct bbox, ignition point, presets | config |
+| Scenario presets | 3+ presets with required fields in paradise-ca | `data.loader` |
 | Output serialization | Burn map, arrival times, routes, zones match spec | `models.schemas` |
+| SimulationResponse region_name | Response includes region_name field | `models.schemas` |
 
 ### Integration Test Plan
 
 | Test | Description |
 |---|---|
-| Full CLI pipeline | `python main.py --runs 10` produces valid JSON output |
+| Full CLI pipeline (default) | `python main.py --runs 10` produces valid JSON output using Paradise default |
+| Full CLI pipeline (custom region) | `python main.py --seed-dir path/to/region --runs 10` loads alternate region |
 | Full API pipeline | `POST /api/simulate` with small run count returns valid response |
+| API with seed_dir | `POST /api/simulate` with seed_dir loads specified region |
 | Wind endpoint | `GET /api/wind` with mocked NWS returns valid WindResponse |
-| Scenarios endpoint | `GET /api/scenarios` returns preset list |
+| Scenarios endpoint (default) | `GET /api/scenarios` returns Paradise preset list |
+| Scenarios endpoint (custom) | `GET /api/scenarios?seed_dir=path` returns presets from specified region |
+| Invalid region dataset | `POST /api/simulate` with invalid seed_dir returns appropriate error |
 
 ### Test Dependencies
 
@@ -809,5 +984,8 @@ pytest -q backend/tests/test_properties.py
 pytest -q --cov=backend --cov-report=term-missing backend/tests/
 
 # Run specific property
-pytest -q -k "test_property_1" backend/tests/test_properties.py
+pytest -q -k "test_property_15" backend/tests/test_properties.py
+
+# Run region dataset validation tests
+pytest -q -k "region" backend/tests/
 ```
