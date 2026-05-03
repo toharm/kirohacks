@@ -4,6 +4,8 @@ Usage:
     python main.py --lat 39.7596 --lon -121.6219 --wind-speed 14 \
                    --wind-dir 225 --humidity 18 --runs 500 \
                    --seed-dir backend/data/seed/paradise-ca/ --output results/
+
+    python main.py ingest --lat 34.0522 --lon -118.2437 --radius 15
 """
 
 import argparse
@@ -24,7 +26,16 @@ def parse_args(argv=None):
         description="EvacuAI - Wildfire Evacuation Simulation Backend",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
+    sub = parser.add_subparsers(dest="command")
 
+    # --- ingest subcommand ---
+    ingest_p = sub.add_parser("ingest", help="Generate seed data for a region from public APIs")
+    ingest_p.add_argument("--lat", type=float, required=True, help="Center latitude")
+    ingest_p.add_argument("--lon", type=float, required=True, help="Center longitude")
+    ingest_p.add_argument("--radius", type=float, default=10.0, help="Radius in km")
+    ingest_p.add_argument("--cell-size", type=float, default=100.0, help="Grid cell size in meters")
+
+    # --- simulate (default) ---
     parser.add_argument("--lat", type=float, default=None, help="Ignition point latitude (defaults to region config default)")
     parser.add_argument("--lon", type=float, default=None, help="Ignition point longitude (defaults to region config default)")
     parser.add_argument("--wind-speed", type=float, default=14.0, help="Wind speed in mph")
@@ -40,9 +51,34 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
+def run_ingest(args):
+    """Run the data ingest pipeline."""
+    from backend.data.ingest.orchestrator import generate_seed_data
+    from backend.data.ingest.overpass import IngestError
+
+    print(f"Generating seed data for ({args.lat}, {args.lon}), radius={args.radius}km...")
+    try:
+        seed_dir = generate_seed_data(
+            lat=args.lat,
+            lon=args.lon,
+            radius_km=args.radius,
+            cell_size_m=args.cell_size,
+            census_api_key=os.environ.get("CENSUS_API_KEY"),
+        )
+        print(f"✓ Generated seed data: {seed_dir}")
+        print("✓ Validated with SeedDataLoader")
+        return 0
+    except IngestError as exc:
+        print(f"✗ Ingest failed: {exc}", file=sys.stderr)
+        return 1
+
+
 def main(argv=None):
     """Main entry point for the EvacuAI simulation pipeline."""
     args = parse_args(argv)
+
+    if args.command == "ingest":
+        return run_ingest(args)
 
     # 1. Load region dataset
     print(f"Loading region dataset from {args.seed_dir}...")

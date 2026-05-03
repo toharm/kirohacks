@@ -177,11 +177,11 @@ export function useSimulation() {
   // -------------------------------------------------------------------------
 
   const canRunSimulation = useMemo(() => {
-    return state.ignitionPoint !== null && state.jobStatus !== 'submitting' && state.jobStatus !== 'running';
+    return state.ignitionPoint !== null && state.jobStatus !== 'running';
   }, [state.ignitionPoint, state.jobStatus]);
 
   const isSimulating = useMemo(() => {
-    return state.jobStatus === 'submitting' || state.jobStatus === 'running';
+    return state.jobStatus === 'running';
   }, [state.jobStatus]);
 
   const hasResults = useMemo(() => state.currentResults !== null, [state.currentResults]);

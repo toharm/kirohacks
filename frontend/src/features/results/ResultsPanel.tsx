@@ -45,8 +45,20 @@ export function ResultsPanel({ isOpen, onClose }: ResultsPanelProps): React.Reac
 }
 
 function ResultsPanelContent(): React.ReactElement {
-  const { state, selectZone, selectedZoneRoutes, storePreviousResults, setWind } = useSimulation();
-  const { currentResults, selectedZoneId } = state;
+  const { state, selectZone, selectedZoneRoutes } = useSimulation();
+  const { currentResults, selectedZoneId, jobStatus, error } = state;
+
+  if (jobStatus === 'error' && error) {
+    return (
+      <div className="space-y-4">
+        <h2 className="text-xs uppercase tracking-wider text-gray-500 font-semibold">Simulation Results</h2>
+        <div className="bg-accent-error/10 border border-accent-error/30 rounded-lg p-4" role="alert">
+          <div className="text-sm font-medium text-accent-error mb-1">Simulation Failed</div>
+          <p className="text-xs text-gray-400">{error}</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!currentResults) {
     return (
@@ -67,30 +79,14 @@ function ResultsPanelContent(): React.ReactElement {
 
   const { routes, zones, evacuation_ordering } = currentResults;
 
-  // Best optimized route overall
   const bestRoute = routes
     .filter((r) => r.strategy === 'optimized')
     .sort((a, b) => b.viability_score - a.viability_score)[0];
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xs uppercase tracking-wider text-gray-500 font-semibold">Simulation Results</h2>
-        {/* Quick Compare button */}
-        <button
-          type="button"
-          onClick={() => {
-            storePreviousResults();
-            setWind({ direction: (state.windParams.direction + 45) % 360 });
-          }}
-          className={cn('text-xs text-accent-primary hover:text-accent-primary-hover transition-colors', 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary')}
-          title="Store current results and shift wind +45° for comparison"
-        >
-          Quick Compare
-        </button>
-      </div>
+      <h2 className="text-xs uppercase tracking-wider text-gray-500 font-semibold">Simulation Results</h2>
 
-      {/* Key metric */}
       {bestRoute && (
         <MetricCard
           label={`Route ${bestRoute.route_id} survives in`}
@@ -102,9 +98,10 @@ function ResultsPanelContent(): React.ReactElement {
       )}
 
       <SummaryStatistics results={currentResults} />
+
+      {/* Baseline vs Optimized comparison */}
       <ComparisonView results={currentResults} />
 
-      {/* Selected zone routes */}
       {selectedZoneId && selectedZoneRoutes.length > 0 && (
         <div>
           <div className="text-xs uppercase tracking-wider text-gray-500 mb-2">Routes for {selectedZoneId}</div>

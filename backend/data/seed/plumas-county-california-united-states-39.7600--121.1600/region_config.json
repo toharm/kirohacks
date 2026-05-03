@@ -1,0 +1,14 @@
+{
+  "region_name": "Plumas County, California, United States",
+  "bounding_box": {
+    "min_lat": 39.669909909909904,
+    "max_lat": 39.85009009009009,
+    "min_lon": -121.2771933769141,
+    "max_lon": -121.0428066230859
+  },
+  "default_ignition_point": {
+    "lat": 39.76,
+    "lon": -121.16
+  },
+  "fire_perimeter_file": "fire_perimeter.geojson"
+}

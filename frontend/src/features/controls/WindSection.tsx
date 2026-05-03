@@ -11,7 +11,7 @@
  * @see requirements.md Requirement 6, AC 1-4
  */
 
-import { useState, useCallback, useId } from "react";
+import { useState, useCallback, useId, useEffect } from "react";
 import { useSimulation } from "@/hooks/useSimulation";
 import { useShowToast } from "@/context/ToastContext";
 import { getApi } from "@/services/api";
@@ -252,6 +252,16 @@ export function WindSection({
       setIsFetching(false);
     }
   }, [ignitionPoint, setWindFromData, showToast, onValidationChange]);
+
+  // Auto-fetch wind when ignition point is first set and mode is live
+  const [autoFetched, setAutoFetched] = useState(false);
+  useEffect(() => {
+    if (ignitionPoint && !autoFetched && windMode === 'live') {
+      setAutoFetched(true);
+      handleFetchWind();
+    }
+    if (!ignitionPoint) setAutoFetched(false);
+  }, [ignitionPoint, autoFetched, windMode, handleFetchWind]);
 
   const isManualMode = windMode === "manual";
 

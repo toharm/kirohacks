@@ -15,18 +15,13 @@ import { useSimulation } from '@/hooks/useSimulation';
  */
 const STATUS_DOT_CLASSES: Record<string, string> = {
   idle: 'bg-gray-500',
-  submitting: 'bg-accent-primary animate-pulse',
   running: 'bg-accent-primary animate-pulse',
   complete: 'bg-accent-success',
   error: 'bg-accent-error',
 };
 
-/**
- * Status text mapping
- */
 const STATUS_TEXT: Record<string, string> = {
   idle: 'Idle',
-  submitting: 'Submitting...',
   running: 'Running',
   complete: 'Complete',
   error: 'Error',
@@ -58,14 +53,13 @@ export function SimulationStatus(): React.ReactElement {
       </span>
 
       {/* Progress display when running */}
-      {(jobStatus === 'running' || jobStatus === 'submitting') && progress && (
+      {jobStatus === 'running' && progress && (
         <span className="text-xs font-mono text-gray-400">
           {progress.completed}/{progress.total}
         </span>
       )}
 
-      {/* Progress percentage for screen readers */}
-      {(jobStatus === 'running' || jobStatus === 'submitting') && progress && (
+      {jobStatus === 'running' && progress && (
         <span className="sr-only">
           {progressPercentage}% complete
         </span>

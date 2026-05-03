@@ -14,7 +14,7 @@ class TestScenariosEndpoint:
     """GET /api/scenarios"""
 
     def test_list_scenarios_returns_presets(self):
-        resp = client.get("/api/scenarios", params={"seed_dir": SEED_DIR})
+        resp = client.get("/api/scenarios", params={"region": "paradise-ca"})
         assert resp.status_code == 200
         data = resp.json()
         assert isinstance(data, list)
@@ -22,9 +22,9 @@ class TestScenariosEndpoint:
         assert "name" in data[0]
         assert "wind_speed_mph" in data[0]
 
-    def test_list_scenarios_bad_dir(self):
-        resp = client.get("/api/scenarios", params={"seed_dir": "/nonexistent/"})
-        assert resp.status_code == 400
+    def test_list_scenarios_bad_region(self):
+        resp = client.get("/api/scenarios", params={"region": "nonexistent"})
+        assert resp.status_code == 404
 
 
 class TestWindEndpoint:
@@ -50,7 +50,7 @@ class TestSimulateEndpoint:
             "num_runs": 2,
             "max_timesteps": 5,
             "seed": 42,
-            "seed_dir": SEED_DIR,
+            "region": "paradise-ca",
         })
         assert resp.status_code == 200
         data = resp.json()
@@ -63,7 +63,7 @@ class TestSimulateEndpoint:
 
     def test_simulate_with_preset(self):
         # First get a valid preset name
-        presets = client.get("/api/scenarios", params={"seed_dir": SEED_DIR}).json()
+        presets = client.get("/api/scenarios", params={"region": "paradise-ca"}).json()
         preset_name = presets[0]["name"]
 
         resp = client.post("/api/simulate", json={
@@ -73,7 +73,7 @@ class TestSimulateEndpoint:
             "max_timesteps": 5,
             "seed": 42,
             "scenario_preset": preset_name,
-            "seed_dir": SEED_DIR,
+            "region": "paradise-ca",
         })
         assert resp.status_code == 200
         assert resp.json()["scenario"] == preset_name
@@ -85,16 +85,16 @@ class TestSimulateEndpoint:
             "num_runs": 2,
             "max_timesteps": 5,
             "scenario_preset": "nonexistent_preset",
-            "seed_dir": SEED_DIR,
+            "region": "paradise-ca",
         })
         assert resp.status_code == 400
 
-    def test_simulate_bad_seed_dir(self):
+    def test_simulate_bad_region(self):
         resp = client.post("/api/simulate", json={
             "ignition_lat": 39.8103,
             "ignition_lon": -121.4377,
             "num_runs": 2,
             "max_timesteps": 5,
-            "seed_dir": "/nonexistent/",
+            "region": "nonexistent",
         })
-        assert resp.status_code == 400
+        assert resp.status_code == 404

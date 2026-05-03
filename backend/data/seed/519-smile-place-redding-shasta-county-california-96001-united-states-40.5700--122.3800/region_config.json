@@ -1,0 +1,14 @@
+{
+  "region_name": "519, Smile Place, Redding, Shasta County, California, 96001, United States",
+  "bounding_box": {
+    "min_lat": 40.47990990990991,
+    "max_lat": 40.660090090090094,
+    "min_lon": -122.49860014886316,
+    "max_lon": -122.26139985113683
+  },
+  "default_ignition_point": {
+    "lat": 40.57,
+    "lon": -122.38
+  },
+  "fire_perimeter_file": "fire_perimeter.geojson"
+}

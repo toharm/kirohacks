@@ -1,0 +1,18 @@
+[
+  {
+    "shelter_id": "synthetic_sw",
+    "name": "Shelter at 39.7653, -121.4963",
+    "lat": 39.765254954954955,
+    "lon": -121.4963395414564,
+    "capacity": 500,
+    "accessible": true
+  },
+  {
+    "shelter_id": "synthetic_ne",
+    "name": "Shelter at 39.8553, -121.3791",
+    "lat": 39.85534504504504,
+    "lon": -121.37906045854362,
+    "capacity": 500,
+    "accessible": true
+  }
+]

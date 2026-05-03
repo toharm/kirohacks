@@ -42,7 +42,7 @@ export interface SimulationState {
   monteCarloRuns: number;
   selectedScenario: string | null;
   jobId: string | null;
-  jobStatus: 'idle' | 'submitting' | 'running' | 'complete' | 'error';
+  jobStatus: 'idle' | 'running' | 'complete' | 'error';
   progress: { completed: number; total: number } | null;
   currentResults: SimulationResults | null;
   previousResults: SimulationResults | null;

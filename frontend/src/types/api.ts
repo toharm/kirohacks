@@ -40,14 +40,6 @@ export interface SimulateRequest {
 // ============================================================================
 
 /**
- * Response from POST /api/simulate
- */
-export interface SimulateResponse {
-  /** Unique job identifier for polling results */
-  job_id: string;
-}
-
-/**
  * Progress response when simulation is running (HTTP 202)
  */
 export interface SimulationProgress {
@@ -368,34 +360,10 @@ export type ApiError = ApiValidationError | ApiNetworkError;
 // Type Guards
 // ============================================================================
 
-/**
- * Type guard for SimulationProgress (HTTP 202)
- */
-export function isSimulationProgress(
-  response: SimulationProgress | SimulationResults
-): response is SimulationProgress {
-  return response.status === 'running';
-}
-
-/**
- * Type guard for SimulationResults (HTTP 200)
- */
-export function isSimulationResults(
-  response: SimulationProgress | SimulationResults
-): response is SimulationResults {
-  return response.status === 'complete';
-}
-
-/**
- * Type guard for ApiValidationError
- */
 export function isApiValidationError(error: ApiError): error is ApiValidationError {
   return error.type === 'validation';
 }
 
-/**
- * Type guard for ApiNetworkError
- */
 export function isApiNetworkError(error: ApiError): error is ApiNetworkError {
   return error.type === 'network';
 }

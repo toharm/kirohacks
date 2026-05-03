@@ -114,14 +114,14 @@ class TestSimulationRequest:
         assert req.wind_direction_deg == 225.0
         assert req.num_runs == 500
         assert req.max_timesteps == 180
-        assert req.seed_dir is None
+        assert req.region is None
 
-    def test_optional_seed_dir(self):
+    def test_optional_region(self):
         req = SimulationRequest(
             ignition_lat=0.0, ignition_lon=0.0,
-            seed_dir="/custom/path",
+            region="paradise-ca",
         )
-        assert req.seed_dir == "/custom/path"
+        assert req.region == "paradise-ca"
 
     def test_wind_direction_lt_360(self):
         """wind_direction_deg must be < 360 (lt, not le)."""

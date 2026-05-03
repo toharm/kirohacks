@@ -258,7 +258,10 @@ function mapSimulationResponse(raw: BackendSimulationResponse): SimulationResult
     baseline_avg_viability: avgBaseline,
     optimized_avg_viability: avgOptimized,
     improvement_percentage: improvement,
-    confidence_interval_95: [Math.max(0, avgOptimized - 8), Math.min(100, avgOptimized + 8)],
+    confidence_interval_95: [
+      Math.max(0, Math.min(...optimizedScores)),
+      Math.min(100, Math.max(...optimizedScores)),
+    ],
   };
 
   return {
@@ -384,7 +387,7 @@ export class LiveApiClient implements EvacuAIApi {
 
     // Signal complete
     onProgress?.({
-      status: 'running',
+      status: 'complete' as 'running',
       completed_runs: raw.num_runs,
       total_runs: raw.num_runs,
       elapsed_seconds: raw.summary.simulation_duration_sec,
@@ -393,11 +396,8 @@ export class LiveApiClient implements EvacuAIApi {
     return mapSimulationResponse(raw);
   }
 
-  /**
-   * Not used — backend is synchronous. Kept for interface compliance.
-   */
   async getResults(_jobId: string): Promise<SimulationProgress | SimulationResults> {
-    return { status: 'running', completed_runs: 0, total_runs: 0, elapsed_seconds: 0 };
+    throw new NetworkError('Polling not supported — backend is synchronous');
   }
 
   async getWind(lat: number, lon: number): Promise<WindData> {
@@ -406,8 +406,9 @@ export class LiveApiClient implements EvacuAIApi {
     return mapWindResponse(raw);
   }
 
-  async getScenarios(): Promise<ScenarioPreset[]> {
-    const raw = await this.fetch<BackendScenarioPreset[]>('/api/scenarios');
+  async getScenarios(region?: string): Promise<ScenarioPreset[]> {
+    const params = region ? `?region=${encodeURIComponent(region)}` : '';
+    const raw = await this.fetch<BackendScenarioPreset[]>(`/api/scenarios${params}`);
     return raw.map(mapScenarioPreset);
   }
 
@@ -418,5 +419,12 @@ export class LiveApiClient implements EvacuAIApi {
   async getShelters(region?: string): Promise<ShelterData[]> {
     const params = region ? `?region=${encodeURIComponent(region)}` : '';
     return this.fetch<ShelterData[]>(`/api/shelters${params}`);
+  }
+
+  async ingest(lat: number, lon: number, radius_km: number): Promise<void> {
+    await this.fetch('/api/ingest', {
+      method: 'POST',
+      body: JSON.stringify({ lat, lon, radius_km }),
+    });
   }
 }

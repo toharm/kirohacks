@@ -25,7 +25,9 @@ export function ScenarioSelector(): React.ReactElement {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch scenarios on mount
+  const selectedRegion = state.selectedRegion;
+
+  // Re-fetch scenarios when region changes
   useEffect(() => {
     let isMounted = true;
 
@@ -34,14 +36,14 @@ export function ScenarioSelector(): React.ReactElement {
         setIsLoading(true);
         setError(null);
         const api = await getApi();
-        const data = await api.getScenarios();
+        const data = await api.getScenarios(selectedRegion ?? undefined);
         if (isMounted) {
           setScenarios(data);
+          setScenario(null); // clear selection when region changes
         }
       } catch (err) {
         if (isMounted) {
           setError('Failed to load scenarios');
-          console.error('Error fetching scenarios:', err);
         }
       } finally {
         if (isMounted) {
@@ -51,11 +53,8 @@ export function ScenarioSelector(): React.ReactElement {
     }
 
     fetchScenarios();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+    return () => { isMounted = false; };
+  }, [selectedRegion, setScenario]);
 
   // Handle scenario selection
   const handleSelectScenario = useCallback(

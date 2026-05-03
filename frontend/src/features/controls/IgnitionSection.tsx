@@ -68,21 +68,9 @@ export function IgnitionSection({ showRequiredError = false }: IgnitionSectionPr
           <div className="flex gap-2">
             <button
               type="button"
-              className={cn(
-                'flex-1 bg-surface-overlay hover:bg-surface-hover',
-                'border border-surface-border rounded-md px-3 py-2 text-sm',
-                'text-gray-300 transition-colors duration-150',
-                'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary',
-                'min-h-[44px]'
-              )}
-            >
-              Select on Map
-            </button>
-            <button
-              type="button"
               onClick={handleClear}
               className={cn(
-                'bg-surface-overlay hover:bg-surface-hover',
+                'flex-1 bg-surface-overlay hover:bg-surface-hover',
                 'border border-surface-border rounded-md px-3 py-2 text-sm',
                 'text-gray-400 hover:text-accent-error transition-colors duration-150',
                 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary',
@@ -90,9 +78,7 @@ export function IgnitionSection({ showRequiredError = false }: IgnitionSectionPr
               )}
               aria-label="Clear ignition point"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
+              ✕ Clear Point
             </button>
           </div>
         </div>

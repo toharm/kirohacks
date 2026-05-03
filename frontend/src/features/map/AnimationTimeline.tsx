@@ -5,7 +5,7 @@
  * Shows play/pause, scrubber, step buttons, and speed selector.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/cn';
 import { useSimulation } from '@/hooks/useSimulation';
 
@@ -14,18 +14,18 @@ type Speed = typeof SPEEDS[number];
 
 const MAX_TIMESTEP = 70;
 
-// Zone cutoff markers from simulation data
-const ZONE_CUTOFFS = [
-  { zone_id: 'BG-21', cutoff_time: 5 },
-  { zone_id: 'BG-12', cutoff_time: 8 },
-  { zone_id: 'BG-15', cutoff_time: 12 },
-  { zone_id: 'BG-08', cutoff_time: 22 },
-  { zone_id: 'BG-03', cutoff_time: 35 },
-];
-
 export function AnimationTimeline(): React.ReactElement {
   const { state, setAnimationTimestep, toggleAnimation } = useSimulation();
-  const { animationTimestep, isAnimating } = state;
+  const { animationTimestep, isAnimating, currentResults } = state;
+
+  // Derive zone cutoffs from simulation results
+  const zoneCutoffs = useMemo(() => {
+    if (!currentResults?.zones?.features) return [];
+    return currentResults.zones.features
+      .map((f) => ({ zone_id: f.properties.zone_id, cutoff_time: f.properties.cutoff_time }))
+      .filter((z) => z.cutoff_time < 999)
+      .sort((a, b) => a.cutoff_time - b.cutoff_time);
+  }, [currentResults]);
 
   const [speed, setSpeed] = useState<Speed>(1);
   const speedRef = useRef<Speed>(1);
@@ -143,7 +143,7 @@ export function AnimationTimeline(): React.ReactElement {
         />
         {/* Zone cutoff markers */}
         <div className="absolute top-0 left-0 right-0 pointer-events-none">
-          {ZONE_CUTOFFS.map(({ zone_id, cutoff_time }) => (
+          {zoneCutoffs.map(({ zone_id, cutoff_time }) => (
             <div
               key={zone_id}
               className="absolute flex flex-col items-center"

@@ -1,8 +1,10 @@
 """FastAPI endpoint definitions."""
 
+import logging
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from backend.data.loader import SeedDataLoader, SeedDataError
 from backend.data.wind_client import NWSWindClient
@@ -196,3 +198,42 @@ def list_shelters(region: str = DEFAULT_REGION):
         return data.shelters
     except SeedDataError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+logger = logging.getLogger(__name__)
+
+
+class IngestRequest(BaseModel):
+    lat: float = Field(..., ge=-90, le=90)
+    lon: float = Field(..., ge=-180, le=180)
+    radius_km: float = Field(10.0, ge=1, le=50)
+
+
+@router.post("/ingest", status_code=202)
+def ingest_region(req: IngestRequest, background_tasks: BackgroundTasks):
+    """Trigger seed data generation for a new region."""
+    import os
+    from backend.data.ingest.orchestrator import generate_seed_data
+    from backend.data.ingest.overpass import IngestError
+
+    # Quick validation before background task
+    if not (18 <= req.lat <= 72 and -180 <= req.lon <= -65):
+        raise HTTPException(status_code=400, detail="Coordinates must be within US bounds.")
+
+    def _run():
+        try:
+            generate_seed_data(
+                lat=req.lat,
+                lon=req.lon,
+                radius_km=req.radius_km,
+                census_api_key=os.environ.get("CENSUS_API_KEY"),
+            )
+            logger.info("Seed data generation complete for (%s, %s)", req.lat, req.lon)
+        except IngestError:
+            logger.exception("Seed data generation failed for (%s, %s)", req.lat, req.lon)
+
+    background_tasks.add_task(_run)
+    return {
+        "status": "generating",
+        "message": "Seed data generation started. Poll GET /api/regions for completion.",
+    }
