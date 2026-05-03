@@ -165,9 +165,9 @@ export function ControlPanel() {
         </div>
         <input
           aria-label="Monte Carlo runs"
-          max={1000}
-          min={50}
-          step={50}
+          max={15}
+          min={5}
+          step={1}
           type="range"
           value={store.numRuns}
           onChange={(event) => store.setNumRuns(Number(event.target.value))}

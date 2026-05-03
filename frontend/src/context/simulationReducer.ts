@@ -87,7 +87,7 @@ export const initialSimulationState: SimulationState = {
   selectIgnitionMode: false,
   wind: defaultWind,
   windMode: "manual",
-  numRuns: 500,
+  numRuns: 10,
   maxTimesteps: 180,
   status: "idle",
   progress: null,

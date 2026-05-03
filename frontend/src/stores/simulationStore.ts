@@ -141,7 +141,7 @@ export const useSimulationStore = create<SimulationStore>((set) => ({
       fieldErrors: clearFields(s.fieldErrors, [field]),
     })),
 
-  numRuns: 50,
+  numRuns: 10,
   maxTimesteps: 180,
   setNumRuns: (value) =>
     set((s) => ({ numRuns: value, fieldErrors: clearFields(s.fieldErrors, ["num_runs"]) })),

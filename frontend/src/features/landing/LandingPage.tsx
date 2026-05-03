@@ -70,7 +70,7 @@ export function LandingPage({ onLaunch }: LandingPageProps) {
           <span>NOAA-ready inputs</span>
         </div>
         <div>
-          <strong>500 runs</strong>
+          <strong>5-15 runs</strong>
           <span>uncertainty modeled</span>
         </div>
         <div>

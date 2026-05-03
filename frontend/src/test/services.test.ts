@@ -10,11 +10,11 @@ describe('buildMockSimulation', () => {
       ignition_lat: 39.7596,
       ignition_lon: -121.6219,
       ...defaultWind,
-      num_runs: 100,
+      num_runs: 10,
       max_timesteps: 180,
     });
-    expect(result.num_runs).toBe(100);
-    expect(result.summary.runs_completed).toBe(100);
+    expect(result.num_runs).toBe(10);
+    expect(result.summary.runs_completed).toBe(10);
   });
 
   it('zone_results are sorted by descending evacuation_priority_score', () => {
@@ -83,14 +83,14 @@ describe('createMockApiClient', () => {
   it('runSimulation calls onProgress and resolves with a SimulationResponse', async () => {
     const onProgress = vi.fn();
     const result = await client.runSimulation(
-      { ignition_lat: 39.7596, ignition_lon: -121.6219, ...defaultWind, num_runs: 50, max_timesteps: 180 },
+      { ignition_lat: 39.7596, ignition_lon: -121.6219, ...defaultWind, num_runs: 10, max_timesteps: 180 },
       onProgress,
     );
     expect(onProgress).toHaveBeenCalled();
     expect(result).toHaveProperty('zone_results');
     expect(result).toHaveProperty('burn_probability_map');
     expect(result).toHaveProperty('evacuation_ordering');
-    expect(result.summary.runs_completed).toBe(50);
+    expect(result.summary.runs_completed).toBe(10);
   });
 });
 
@@ -105,7 +105,7 @@ describe('SimulationRequest validation', () => {
       wind_direction_deg: 225,
       wind_gust_mph: 20,
       relative_humidity: 18,
-      num_runs: 500,
+      num_runs: 10,
       max_timesteps: 180,
       ...overrides,
     };
@@ -116,7 +116,7 @@ describe('SimulationRequest validation', () => {
     if (base.wind_direction_deg < 0 || base.wind_direction_deg >= 360) errors.wind_direction_deg = 'out of range';
     if (base.wind_gust_mph < 0 || base.wind_gust_mph > 150) errors.wind_gust_mph = 'out of range';
     if (base.relative_humidity < 0 || base.relative_humidity > 100) errors.relative_humidity = 'out of range';
-    if (base.num_runs < 50 || base.num_runs > 1000) errors.num_runs = 'out of range';
+    if (base.num_runs < 5 || base.num_runs > 15) errors.num_runs = 'out of range';
     return errors;
   }
 
@@ -137,12 +137,12 @@ describe('SimulationRequest validation', () => {
     expect(validate({ wind_direction_deg: 360 })).toHaveProperty('wind_direction_deg');
   });
 
-  it('rejects num_runs below 50', () => {
-    expect(validate({ num_runs: 10 })).toHaveProperty('num_runs');
+  it('rejects num_runs below 5', () => {
+    expect(validate({ num_runs: 4 })).toHaveProperty('num_runs');
   });
 
-  it('rejects num_runs above 1000', () => {
-    expect(validate({ num_runs: 1001 })).toHaveProperty('num_runs');
+  it('rejects num_runs above 15', () => {
+    expect(validate({ num_runs: 16 })).toHaveProperty('num_runs');
   });
 
   it('rejects humidity above 100', () => {

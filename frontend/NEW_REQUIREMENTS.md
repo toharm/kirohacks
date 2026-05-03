@@ -364,7 +364,7 @@ Card-based selector populated from `getScenarios`. Selecting a scenario updates 
 *Satisfies Req 3.4.*
 
 #### Task 6.4 — Build Monte Carlo Runs Slider
-Range 50–1000, step 50, default 500, with numeric display. Bound to simulation store.
+Range 5–15, step 1, default 10, with numeric display. Bound to simulation store.
 
 *Satisfies Req 3.5.*
 

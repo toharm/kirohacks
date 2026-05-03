@@ -122,7 +122,7 @@ function validateRequest(request: SimulationRequest) {
   if (request.wind_direction_deg < 0 || request.wind_direction_deg >= 360) errors.wind_direction_deg = "Direction must be 0 to 359 degrees.";
   if (request.wind_gust_mph < 0 || request.wind_gust_mph > 150) errors.wind_gust_mph = "Gust must be 0 to 150 mph.";
   if (request.relative_humidity < 0 || request.relative_humidity > 100) errors.relative_humidity = "Humidity must be 0 to 100%.";
-  if (request.num_runs < 50 || request.num_runs > 1000) errors.num_runs = "Monte Carlo runs must be 50 to 1000.";
+  if (request.num_runs < 5 || request.num_runs > 15) errors.num_runs = "Monte Carlo runs must be 5 to 15.";
   return errors;
 }
 
