@@ -1,9 +1,10 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { HeaderBar } from "./components/HeaderBar";
 import { ToastContainer } from "./components/ToastContainer";
 import { useSimulationStore } from "./stores/simulationStore";
 import { useToasts } from "./context/useToasts";
 import { ControlPanel } from "./features/controls/ControlPanel";
+import { LandingPage } from "./features/landing/LandingPage";
 import { MapView } from "./features/map/MapView";
 import { ResultsPanel } from "./features/results/ResultsPanel";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
@@ -11,6 +12,7 @@ import { useSimulation } from "./hooks/useSimulation";
 import { apiClient } from "./services/api";
 
 export default function App() {
+  const [showLanding, setShowLanding] = useState(true);
   const setScenarios = useSimulationStore((s) => s.setScenarios);
   const selectScenario = useSimulationStore((s) => s.selectScenario);
   const selectedScenarioName = useSimulationStore((s) => s.selectedScenarioName);
@@ -64,6 +66,15 @@ export default function App() {
     !panels.controls && "controls-closed",
     !panels.results && "results-closed",
   ].filter(Boolean).join(" ");
+
+  if (showLanding) {
+    return (
+      <>
+        <LandingPage onLaunch={() => setShowLanding(false)} />
+        <ToastContainer />
+      </>
+    );
+  }
 
   return (
     <div className="app-shell">
