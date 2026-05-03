@@ -54,6 +54,7 @@ def fetch_fuel_grid(
     timeout: int = 300,
 ) -> None:
     min_lon, min_lat, max_lon, max_lat = bbox
+    used_synthetic = False
     try:
         if not _RASTERIO:
             raise IngestError("rasterio not available")
@@ -110,7 +111,15 @@ def fetch_fuel_grid(
     except Exception as exc:
         log.warning("LANDFIRE fetch failed (%s); using synthetic fuel grid", exc)
         grid = _synthetic(grid_rows, grid_cols)
+        used_synthetic = True
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     np.save(output_path, grid)
+
+    # Write warning sidecar if synthetic data was used
+    if used_synthetic:
+        warnings_path = output_path.parent / "_warnings.json"
+        warnings = json.loads(warnings_path.read_text()) if warnings_path.exists() else []
+        warnings.append({"code": "synthetic_fuel", "message": "LANDFIRE fuel data unavailable — using synthetic fuel grid. Fire spread rates are randomized.", "severity": "warning"})
+        warnings_path.write_text(json.dumps(warnings, indent=2))

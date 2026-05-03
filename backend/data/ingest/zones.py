@@ -136,4 +136,12 @@ def fetch_zones(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps({"type": "FeatureCollection", "features": features}, indent=2))
+
+    # Write warning sidecar if synthetic data was used
+    warnings_path = output_path.parent / "_warnings.json"
+    warnings = json.loads(warnings_path.read_text()) if warnings_path.exists() else []
+    if any(f.get("properties", {}).get("zone_id", "").startswith("synthetic_") for f in features):
+        warnings.append({"code": "synthetic_zones", "message": "Census data unavailable — using synthetic population zones. Demographics are estimated.", "severity": "warning"})
+        warnings_path.write_text(json.dumps(warnings, indent=2))
+
     log.info("Wrote %d zones to %s", len(features), output_path)

@@ -28,6 +28,7 @@ class OverpassClient:
                     resp = requests.post(
                         self._URL,
                         data={"data": overpass_ql},
+                        headers={"User-Agent": "EvacuAI/1.0"},
                         timeout=timeout,
                     )
                 except requests.RequestException as e:

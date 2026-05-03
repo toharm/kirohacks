@@ -247,6 +247,14 @@ class SimulationSummary(BaseModel):
     runs_completed: int = Field(..., description="Number of MC runs completed")
 
 
+class DataWarning(BaseModel):
+    """Warning about data quality or fallback usage during simulation."""
+
+    code: str = Field(..., description="Machine-readable warning code")
+    message: str = Field(..., description="Human-readable warning message")
+    severity: str = Field("warning", description="'warning' or 'info'")
+
+
 class SimulationResponse(BaseModel):
     """Full response for POST /api/simulate.
 
@@ -274,6 +282,9 @@ class SimulationResponse(BaseModel):
         ..., description="Zone IDs in evacuation priority order (descending)"
     )
     summary: SimulationSummary = Field(..., description="High-level simulation summary")
+    warnings: list[DataWarning] = Field(
+        default_factory=list, description="Data quality warnings (synthetic/fallback data usage)"
+    )
 
 
 class WindResponse(BaseModel):

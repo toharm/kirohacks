@@ -1,0 +1,14 @@
+{
+  "region_name": "Camp Creek Road, Pulga, Butte County, California, 95980, United States",
+  "bounding_box": {
+    "min_lat": 39.720209909909904,
+    "max_lat": 39.90039009009009,
+    "min_lon": -121.55497908291278,
+    "max_lon": -121.32042091708723
+  },
+  "default_ignition_point": {
+    "lat": 39.8103,
+    "lon": -121.4377
+  },
+  "fire_perimeter_file": "fire_perimeter.geojson"
+}

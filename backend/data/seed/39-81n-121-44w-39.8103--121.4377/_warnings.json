@@ -1,0 +1,7 @@
+[
+  {
+    "code": "synthetic_fuel",
+    "message": "LANDFIRE fuel data unavailable \u2014 using synthetic fuel grid. Fire spread rates are randomized.",
+    "severity": "warning"
+  }
+]

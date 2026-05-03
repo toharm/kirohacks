@@ -227,6 +227,18 @@ export interface SimulationSummary {
 }
 
 /**
+ * Data quality warning from the backend
+ */
+export interface DataWarning {
+  /** Machine-readable warning code */
+  code: string;
+  /** Human-readable warning message */
+  message: string;
+  /** Severity level */
+  severity: 'warning' | 'info';
+}
+
+/**
  * Complete simulation results (HTTP 200)
  */
 export interface SimulationResults {
@@ -246,6 +258,8 @@ export interface SimulationResults {
   evacuation_ordering: EvacuationOrderEntry[];
   /** Aggregate summary statistics */
   summary: SimulationSummary;
+  /** Data quality warnings (synthetic/fallback data usage) */
+  warnings: DataWarning[];
 }
 
 // ============================================================================

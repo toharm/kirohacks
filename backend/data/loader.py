@@ -40,6 +40,11 @@ class SeedData:
     zones: list[Zone]
     shelters: list[Shelter]
     scenario_presets: list[ScenarioPreset]
+    warnings: list[dict] = None  # data quality warnings from ingest
+
+    def __post_init__(self):
+        if self.warnings is None:
+            self.warnings = []
 
 
 class SeedDataLoader:
@@ -373,6 +378,17 @@ class SeedDataLoader:
 
         return presets
 
+    def load_warnings(self) -> list[dict]:
+        """Load _warnings.json if it exists. Returns empty list if absent."""
+        filepath = self._file_path("_warnings.json")
+        if not filepath.exists():
+            return []
+        try:
+            with open(filepath, "r") as f:
+                return json.load(f)
+        except Exception:
+            return []
+
     def load_all(self) -> SeedData:
         """Validate and load all Region Dataset files.
 
@@ -408,6 +424,7 @@ class SeedDataLoader:
         zones = self.load_zones()
         shelters = self.load_shelters()
         scenario_presets = self.load_scenario_presets()
+        warnings = self.load_warnings()
 
         return SeedData(
             region_config=region_config,
@@ -418,4 +435,5 @@ class SeedDataLoader:
             zones=zones,
             shelters=shelters,
             scenario_presets=scenario_presets,
+            warnings=warnings,
         )

@@ -133,6 +133,7 @@ interface BackendSimulationResponse {
     simulation_duration_sec: number;
     runs_completed: number;
   };
+  warnings?: { code: string; message: string; severity: string }[];
 }
 
 interface BackendWindResponse {
@@ -273,6 +274,11 @@ function mapSimulationResponse(raw: BackendSimulationResponse): SimulationResult
     zones,
     evacuation_ordering,
     summary,
+    warnings: (raw.warnings ?? []).map((w) => ({
+      code: w.code,
+      message: w.message,
+      severity: (w.severity === 'info' ? 'info' : 'warning') as 'warning' | 'info',
+    })),
   };
 }
 

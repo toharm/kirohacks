@@ -1,0 +1,2 @@
+- What are the default blue dots on the map?
+- How does the orange box get generated

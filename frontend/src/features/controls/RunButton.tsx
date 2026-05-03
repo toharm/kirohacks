@@ -33,6 +33,7 @@ import { useCallback } from 'react';
 import { cn } from '@/lib/cn';
 import { useSimulation } from '@/hooks/useSimulation';
 import { getApi } from '@/services/api';
+import { useShowToast } from '@/context/ToastContext';
 
 interface RunButtonProps {
   /** Whether wind inputs currently have validation errors */
@@ -51,6 +52,8 @@ export function RunButton({ hasWindErrors = false, onValidationAttempt }: RunBut
     isSimulating,
     progressPercentage,
   } = useSimulation();
+
+  const showToast = useShowToast();
 
   const { progress, ignitionPoint, windParams, monteCarloRuns } = state;
 
@@ -89,6 +92,15 @@ export function RunButton({ hasWindErrors = false, onValidationAttempt }: RunBut
       );
 
       setResults(results);
+
+      // Show data quality warnings as toasts
+      for (const warning of results.warnings ?? []) {
+        showToast({
+          message: warning.message,
+          variant: warning.severity === 'info' ? 'info' : 'warning',
+          duration: 8000,
+        });
+      }
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Simulation failed. Please try again.';
@@ -106,6 +118,7 @@ export function RunButton({ hasWindErrors = false, onValidationAttempt }: RunBut
     setResults,
     setError,
     onValidationAttempt,
+    showToast,
   ]);
 
   const progressWidth = `${progressPercentage}%`;

@@ -63,6 +63,8 @@ def fetch_shelters(
                                       max_lat=max_lat, max_lon=max_lon))
     shelters = []
     for el in data.get("elements", []):
+        if el.get("type") != "node":
+            continue
         tags = el.get("tags", {})
         lat, lon = el["lat"], el["lon"]
         shelters.append({

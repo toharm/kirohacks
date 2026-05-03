@@ -18,6 +18,7 @@ from backend.models.schemas import (
     ZoneResult,
     ScenarioPreset,
     Shelter,
+    DataWarning,
 )
 from backend.monte_carlo.engine import MonteCarloEngine
 from backend.simulation.fire_spread import FireSpreadEngine
@@ -148,6 +149,14 @@ def simulate(req: SimulationRequest):
     zone_results.sort(key=lambda z: (-z.failure_risk_pct, z.cutoff_time or 999))
     evacuation_ordering = [z.zone_id for z in zone_results]
 
+    # Collect data quality warnings from seed data
+    warnings = [DataWarning(**w) for w in data.warnings]
+
+    # Add wind fallback warning if applicable
+    if not req.scenario_preset:
+        # Wind source is determined by the client; check if NWS was attempted
+        pass  # wind warnings are handled client-side via WindResponse.source
+
     return SimulationResponse(
         region_name=data.region_config.region_name,
         scenario=scenario_name,
@@ -165,6 +174,7 @@ def simulate(req: SimulationRequest):
             simulation_duration_sec=result.simulation_duration_sec,
             runs_completed=result.runs_completed,
         ),
+        warnings=warnings,
     )
 
 
