@@ -1,0 +1,32 @@
+[
+  {
+    "name": "Fast Wind Shift",
+    "description": "High wind NE scenario for Malibu, CA",
+    "ignition_lat": 34.0259,
+    "ignition_lon": -118.7798,
+    "wind_speed_mph": 25.0,
+    "wind_direction_deg": 45.0,
+    "wind_gust_mph": 40.0,
+    "relative_humidity": 10.0
+  },
+  {
+    "name": "Night Evacuation",
+    "description": "Low wind SW scenario for Malibu, CA",
+    "ignition_lat": 34.0259,
+    "ignition_lon": -118.7798,
+    "wind_speed_mph": 10.0,
+    "wind_direction_deg": 225.0,
+    "wind_gust_mph": 15.0,
+    "relative_humidity": 30.0
+  },
+  {
+    "name": "School Zone",
+    "description": "N wind scenario near schools for Malibu, CA",
+    "ignition_lat": 34.0259,
+    "ignition_lon": -118.7798,
+    "wind_speed_mph": 15.0,
+    "wind_direction_deg": 0.0,
+    "wind_gust_mph": 25.0,
+    "relative_humidity": 15.0
+  }
+]

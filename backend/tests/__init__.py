@@ -1,1 +1,0 @@
-# EvacuAI test suite

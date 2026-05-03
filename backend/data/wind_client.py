@@ -1,13 +1,8 @@
-"""NWS (National Weather Service) API client for live wind data.
-
-Fetches current wind conditions from api.weather.gov for any lat/lon.
-NWS coverage is US-only; non-US coordinates will trigger fallback values.
-Supports manual override to skip API calls entirely.
-"""
+from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
+from typing import Optional
 
 import requests
 
@@ -15,213 +10,102 @@ from backend.models.schemas import WindConditions
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-NWS_BASE_URL = "https://api.weather.gov"
-NWS_TIMEOUT_SECONDS = 10
-NWS_HEADERS = {"User-Agent": "EvacuAI/1.0"}
-
-COMPASS_TO_DEGREES: dict[str, float] = {
-    "N": 0.0,
-    "NE": 45.0,
-    "E": 90.0,
-    "SE": 135.0,
-    "S": 180.0,
-    "SW": 225.0,
-    "W": 270.0,
-    "NW": 315.0,
+COMPASS_TO_DEG = {
+    "N": 0.0, "NNE": 22.5, "NE": 45.0, "ENE": 67.5,
+    "E": 90.0, "ESE": 112.5, "SE": 135.0, "SSE": 157.5,
+    "S": 180.0, "SSW": 202.5, "SW": 225.0, "WSW": 247.5,
+    "W": 270.0, "WNW": 292.5, "NW": 315.0, "NNW": 337.5,
 }
 
-# Regex to extract a numeric value from strings like "14 mph" or "5.5 mph"
-_WIND_SPEED_RE = re.compile(r"([\d.]+)\s*mph", re.IGNORECASE)
+
+def _parse_speed(s: str) -> Optional[float]:
+    """Parse '14 mph' → 14.0"""
+    if s is None:
+        return None
+    m = re.search(r"[\d.]+", str(s))
+    return float(m.group()) if m else None
 
 
-# ---------------------------------------------------------------------------
-# Helper functions
-# ---------------------------------------------------------------------------
-
-
-def parse_wind_speed(s: str) -> float:
-    """Parse a wind speed string like ``"14 mph"`` into a float value.
-
-    Args:
-        s: Wind speed string in the format ``"<number> mph"``.
-
-    Returns:
-        The numeric wind speed as a float.
-
-    Raises:
-        ValueError: If the string cannot be parsed.
-    """
-    match = _WIND_SPEED_RE.search(s)
-    if match is None:
-        raise ValueError(f"Cannot parse wind speed from string: {s!r}")
-    return float(match.group(1))
-
-
-def compass_to_degrees(direction: str) -> float:
-    """Convert a compass direction string to degrees.
-
-    Supported directions: N, NE, E, SE, S, SW, W, NW.
-
-    Args:
-        direction: Compass direction string (case-insensitive).
-
-    Returns:
-        Direction in degrees (0.0 for N, 45.0 for NE, etc.).
-
-    Raises:
-        ValueError: If the direction is not a recognized compass point.
-    """
-    key = direction.strip().upper()
-    if key not in COMPASS_TO_DEGREES:
-        raise ValueError(
-            f"Unknown compass direction: {direction!r}. "
-            f"Expected one of {list(COMPASS_TO_DEGREES.keys())}"
-        )
-    return COMPASS_TO_DEGREES[key]
-
-
-@dataclass
-class WindFetchResult:
-    """Result of a wind fetch, including the data source."""
-
-    conditions: WindConditions
-    source: str  # "nws_live", "fallback", or "manual_override"
-
-
-# ---------------------------------------------------------------------------
-# NWS Wind Client
-# ---------------------------------------------------------------------------
+def _parse_direction(s: str) -> Optional[float]:
+    """Parse compass string or numeric string to degrees."""
+    if s is None:
+        return None
+    s = str(s).strip().upper()
+    if s in COMPASS_TO_DEG:
+        return COMPASS_TO_DEG[s]
+    try:
+        return float(s)
+    except ValueError:
+        return None
 
 
 class NWSWindClient:
-    """Fetches live wind data from the National Weather Service API.
-
-    Usage::
-
-        client = NWSWindClient()
-        wind = client.fetch(lat=39.76, lon=-121.62)
-
-    If the NWS API is unreachable, returns US-only data, or times out,
-    the client returns ``FALLBACK_WIND`` and logs a warning.
-
-    If an ``override`` is provided, the API call is skipped entirely.
-    """
-
     FALLBACK_WIND = WindConditions(
         wind_speed_mph=10.0,
-        wind_direction_deg=225.0,  # SW
+        wind_direction_deg=225.0,
         wind_gust_mph=20.0,
         relative_humidity=20.0,
     )
+    HEADERS = {"User-Agent": "EvacuAI/1.0"}
+    TIMEOUT = 10
 
     def fetch(
         self,
         lat: float,
         lon: float,
-        override: WindConditions | None = None,
-    ) -> WindFetchResult:
-        """Fetch current wind conditions for a location.
-
-        Args:
-            lat: Latitude of the location.
-            lon: Longitude of the location.
-            override: If provided, returned directly without any API call.
-
-        Returns:
-            A ``WindFetchResult`` with conditions and source indicator.
-        """
+        override: Optional[WindConditions] = None,
+    ) -> WindConditions:
         if override is not None:
-            return WindFetchResult(conditions=override, source="manual_override")
+            return override
 
         try:
-            grid_id, grid_x, grid_y = self._resolve_grid(lat, lon)
-            conditions = self._fetch_forecast(grid_id, grid_x, grid_y)
-            return WindFetchResult(conditions=conditions, source="nws_live")
-        except Exception as exc:
-            logger.warning(
-                "NWS wind fetch failed for (%.4f, %.4f): %s. "
-                "Returning fallback wind conditions.",
-                lat,
-                lon,
-                exc,
+            points_url = f"https://api.weather.gov/points/{lat},{lon}"
+            r = requests.get(points_url, headers=self.HEADERS, timeout=self.TIMEOUT)
+            if r.status_code != 200:
+                logger.warning("NWS points API returned %s for (%s, %s)", r.status_code, lat, lon)
+                return self.FALLBACK_WIND
+
+            props = r.json().get("properties", {})
+            grid_id = props.get("gridId")
+            grid_x = props.get("gridX")
+            grid_y = props.get("gridY")
+            if not all([grid_id, grid_x, grid_y]):
+                logger.warning("NWS points response missing grid fields")
+                return self.FALLBACK_WIND
+
+            forecast_url = (
+                f"https://api.weather.gov/gridpoints/{grid_id}/{grid_x},{grid_y}/forecast/hourly"
             )
-            return WindFetchResult(conditions=self.FALLBACK_WIND, source="fallback")
+            r2 = requests.get(forecast_url, headers=self.HEADERS, timeout=self.TIMEOUT)
+            if r2.status_code != 200:
+                logger.warning("NWS forecast API returned %s", r2.status_code)
+                return self.FALLBACK_WIND
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
+            periods = r2.json().get("properties", {}).get("periods", [])
+            if not periods:
+                logger.warning("NWS forecast has no periods")
+                return self.FALLBACK_WIND
 
-    def _resolve_grid(
-        self, lat: float, lon: float
-    ) -> tuple[str, int, int]:
-        """Resolve lat/lon to NWS grid coordinates.
+            period = periods[0]
+            wind_speed = _parse_speed(period.get("windSpeed"))
+            wind_dir = _parse_direction(period.get("windDirection"))
+            wind_gust = _parse_speed(period.get("windGust")) or (wind_speed * 1.5 if wind_speed else 20.0)
+            humidity = period.get("relativeHumidity", {})
+            if isinstance(humidity, dict):
+                humidity = humidity.get("value")
+            humidity = float(humidity) if humidity is not None else 20.0
 
-        Calls ``GET /points/{lat},{lon}`` and extracts
-        ``gridId``, ``gridX``, ``gridY``.
+            if wind_speed is None or wind_dir is None:
+                logger.warning("NWS response missing wind fields")
+                return self.FALLBACK_WIND
 
-        Raises on HTTP errors or unexpected response structure.
-        """
-        url = f"{NWS_BASE_URL}/points/{lat},{lon}"
-        resp = requests.get(
-            url, headers=NWS_HEADERS, timeout=NWS_TIMEOUT_SECONDS
-        )
-        resp.raise_for_status()
+            return WindConditions(
+                wind_speed_mph=wind_speed,
+                wind_direction_deg=wind_dir,
+                wind_gust_mph=wind_gust,
+                relative_humidity=humidity,
+            )
 
-        props = resp.json()["properties"]
-        grid_id: str = props["gridId"]
-        grid_x: int = int(props["gridX"])
-        grid_y: int = int(props["gridY"])
-        return grid_id, grid_x, grid_y
-
-    def _fetch_forecast(
-        self, grid_id: str, grid_x: int, grid_y: int
-    ) -> WindConditions:
-        """Fetch the hourly forecast and parse the first period.
-
-        Calls ``GET /gridpoints/{gridId}/{gridX},{gridY}/forecast/hourly``
-        and extracts wind speed, direction, gust, and humidity from the
-        first forecast period.
-
-        Raises on HTTP errors or unexpected response structure.
-        """
-        url = (
-            f"{NWS_BASE_URL}/gridpoints/{grid_id}/"
-            f"{grid_x},{grid_y}/forecast/hourly"
-        )
-        resp = requests.get(
-            url, headers=NWS_HEADERS, timeout=NWS_TIMEOUT_SECONDS
-        )
-        resp.raise_for_status()
-
-        period = resp.json()["properties"]["periods"][0]
-
-        wind_speed_mph = parse_wind_speed(period["windSpeed"])
-        wind_direction_deg = compass_to_degrees(period["windDirection"])
-
-        # Gust may be None in the NWS response
-        wind_gust_str = period.get("windGust")
-        if wind_gust_str:
-            wind_gust_mph = parse_wind_speed(wind_gust_str)
-        else:
-            # Default gust to 1.5× wind speed when not reported
-            wind_gust_mph = wind_speed_mph * 1.5
-
-        # Humidity may be reported as an integer or nested object
-        humidity_raw = period.get("relativeHumidity")
-        if isinstance(humidity_raw, dict):
-            relative_humidity = float(humidity_raw.get("value", 20.0))
-        elif humidity_raw is not None:
-            relative_humidity = float(humidity_raw)
-        else:
-            relative_humidity = 20.0
-
-        return WindConditions(
-            wind_speed_mph=wind_speed_mph,
-            wind_direction_deg=wind_direction_deg,
-            wind_gust_mph=wind_gust_mph,
-            relative_humidity=relative_humidity,
-        )
+        except Exception as e:
+            logger.warning("NWS fetch failed: %s", e)
+            return self.FALLBACK_WIND

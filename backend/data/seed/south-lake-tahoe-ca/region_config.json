@@ -1,0 +1,14 @@
+{
+  "region_name": "South Lake Tahoe, CA",
+  "bounding_box": {
+    "min_lat": 38.84981,
+    "max_lat": 39.02999,
+    "min_lon": -120.093026,
+    "max_lon": -119.861374
+  },
+  "default_ignition_point": {
+    "lat": 38.9399,
+    "lon": -119.9772
+  },
+  "fire_perimeter_file": null
+}

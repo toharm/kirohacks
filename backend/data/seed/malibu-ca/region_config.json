@@ -1,0 +1,14 @@
+{
+  "region_name": "Malibu, CA",
+  "bounding_box": {
+    "min_lat": 33.93581,
+    "max_lat": 34.11599,
+    "min_lon": -118.888501,
+    "max_lon": -118.671099
+  },
+  "default_ignition_point": {
+    "lat": 34.0259,
+    "lon": -118.7798
+  },
+  "fire_perimeter_file": null
+}

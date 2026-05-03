@@ -1,0 +1,14 @@
+{
+  "region_name": "Santa Rosa, CA",
+  "bounding_box": {
+    "min_lat": 38.35031,
+    "max_lat": 38.53049,
+    "min_lon": -122.82912,
+    "max_lon": -122.59908
+  },
+  "default_ignition_point": {
+    "lat": 38.4404,
+    "lon": -122.7141
+  },
+  "fire_perimeter_file": "santa-rosa-ca_perimeter.geojson"
+}

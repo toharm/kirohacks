@@ -1,268 +1,378 @@
-"""Baseline and optimized evacuation route computation.
-
-Provides Dijkstra shortest-path routing from zone centroids to the
-nearest shelter on a road graph, with graceful handling of disconnected
-graphs and unreachable shelters.
-
-Optimized routing uses a multi-factor cost function:
-    cost = alpha * travel_time + beta * congestion
-         + gamma * fire_exposure + delta * road_closure
-"""
+from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from typing import Optional
 
-import networkx as nx
 import numpy as np
+import networkx as nx
 
-from backend.models.schemas import CostWeights, GridBounds, Shelter, Zone
+from backend.models.schemas import Zone, Shelter, CostWeights, GridBounds
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class BaselineRouteResult:
-    """Result of baseline shortest-path routing for a single zone."""
-
     zone_id: str
     shelter_id: str
     node_ids: list[int]
-    path_coords: list[tuple[float, float]]  # (lat, lon) pairs
+    path_coords: list[tuple[float, float]]
     total_travel_time: float
-    failure_risk_pct: float  # 100.0 if no path found
-    cutoff_time: int  # 0 if no path found
+
+
+@dataclass
+class OptimizedRouteResult:
+    zone_id: str
+    shelter_id: str
+    node_ids: list[int]
+    path_coords: list[tuple[float, float]]
+    total_travel_time: float
+    total_cost: float
+
+
+@dataclass
+class ViabilityResult:
+    zone_id: str
+    viability_score: float   # % of runs route succeeds
+    cutoff_time: Optional[int]
+    failure_risk_pct: float
+
+
+@dataclass
+class ZoneOrderResult:
+    zone_id: str
+    priority_score: float
+
+def _path_coords(G: nx.DiGraph, node_ids: list[int]) -> list[tuple[float, float]]:
+    return [(G.nodes[n]["lat"], G.nodes[n]["lon"]) for n in node_ids]
 
 
 class EvacuationRouter:
-    """Computes baseline and optimized evacuation routes.
-
-    Baseline routing uses Dijkstra shortest-path (minimum travel_time)
-    to the nearest shelter for each zone centroid on the road graph.
-
-    Optimized routing uses a multi-factor cost function incorporating
-    travel time, congestion, fire exposure, and road closure probability.
-    """
-
     def __init__(
         self,
         road_graph: nx.DiGraph,
         zones: list[Zone],
         shelters: list[Shelter],
+        grid_bounds: Optional[GridBounds] = None,
     ) -> None:
-        self.road_graph = road_graph
+        self.G = road_graph
         self.zones = zones
         self.shelters = shelters
-        self._shelter_nodes: dict[str, int | None] | None = None
+        self.grid_bounds = grid_bounds
+        node_items = list(road_graph.nodes(data=True))
+        self._node_ids = [nid for nid, _ in node_items]
+        self._node_lats = np.asarray([data["lat"] for _, data in node_items], dtype=np.float64)
+        self._node_lons = np.asarray([data["lon"] for _, data in node_items], dtype=np.float64)
+        self._zone_nodes = {
+            z.zone_id: self._nearest_node(z.centroid_lat, z.centroid_lon)
+            for z in zones
+        }
+        self._shelter_nodes = {
+            s.shelter_id: self._nearest_node(s.lat, s.lon)
+            for s in shelters
+        }
+        self._shelter_node_to_id: dict[int, str] = {}
+        for shelter_id, node_id in self._shelter_nodes.items():
+            self._shelter_node_to_id.setdefault(node_id, shelter_id)
 
-    def _get_shelter_nodes(self) -> dict[str, int | None]:
-        """Pre-compute and cache nearest graph node for each shelter."""
-        if self._shelter_nodes is None:
-            self._shelter_nodes = {}
-            for shelter in self.shelters:
-                node = self._find_nearest_node(shelter.lat, shelter.lon)
-                if node is None:
-                    logger.warning(
-                        "No graph node found near shelter %s (%s). Skipping.",
-                        shelter.shelter_id, shelter.name,
-                    )
-                self._shelter_nodes[shelter.shelter_id] = node
-        return self._shelter_nodes
+    def _nearest_node(self, lat: float, lon: float) -> int:
+        """Approximate nearest-node lookup using vectorized lat/lon distance."""
+        if not self._node_ids:
+            raise ValueError("Road graph has no nodes")
 
-    def _find_nearest_node(self, lat: float, lon: float) -> int | None:
-        """Find the nearest graph node to a (lat, lon) point by Euclidean distance."""
-        best_node: int | None = None
-        best_dist = float("inf")
-
-        for node_id, attrs in self.road_graph.nodes(data=True):
-            node_lat = attrs.get("lat")
-            node_lon = attrs.get("lon")
-            if node_lat is None or node_lon is None:
-                continue
-            dist = math.hypot(lat - node_lat, lon - node_lon)
-            if dist < best_dist:
-                best_dist = dist
-                best_node = node_id
-
-        return best_node
-
-    def _extract_path_coords(self, node_ids: list[int]) -> list[tuple[float, float]]:
-        """Extract (lat, lon) coordinate pairs from a list of node IDs."""
-        coords: list[tuple[float, float]] = []
-        for node_id in node_ids:
-            attrs = self.road_graph.nodes[node_id]
-            lat = attrs.get("lat")
-            lon = attrs.get("lon")
-            if lat is not None and lon is not None:
-                coords.append((lat, lon))
-        return coords
-
-    def _no_path_result(self, zone_id: str) -> BaselineRouteResult:
-        """Return a failure result for a zone with no reachable shelter."""
-        return BaselineRouteResult(
-            zone_id=zone_id, shelter_id="", node_ids=[], path_coords=[],
-            total_travel_time=0.0, failure_risk_pct=100.0, cutoff_time=0,
-        )
+        lon_scale = math.cos(math.radians(lat))
+        lat_diff = self._node_lats - lat
+        lon_diff = (self._node_lons - lon) * lon_scale
+        idx = int(np.argmin(lat_diff * lat_diff + lon_diff * lon_diff))
+        return self._node_ids[idx]
 
     def compute_baseline_routes(self) -> dict[str, BaselineRouteResult]:
-        """Compute Dijkstra shortest-path routes to nearest shelter per zone."""
-        shelter_nodes = self._get_shelter_nodes()
-        results: dict[str, BaselineRouteResult] = {}
-
-        for zone in self.zones:
-            zone_node = self._find_nearest_node(zone.centroid_lat, zone.centroid_lon)
-            if zone_node is None:
-                results[zone.zone_id] = self._no_path_result(zone.zone_id)
-                continue
-
-            best_path: list[int] | None = None
-            best_travel_time = float("inf")
-            best_shelter_id = ""
-
-            for shelter in self.shelters:
-                shelter_node = shelter_nodes.get(shelter.shelter_id)
-                if shelter_node is None:
-                    continue
-                try:
-                    travel_time, path = nx.single_source_dijkstra(
-                        self.road_graph, zone_node, shelter_node,
-                        weight="travel_time",
-                    )
-                except nx.NetworkXNoPath:
-                    continue
-
-                if travel_time < best_travel_time:
-                    best_travel_time = travel_time
-                    best_path = path
-                    best_shelter_id = shelter.shelter_id
-
-            if best_path is None:
-                results[zone.zone_id] = self._no_path_result(zone.zone_id)
-            else:
-                results[zone.zone_id] = BaselineRouteResult(
+        if not self.shelters:
+            return {
+                zone.zone_id: BaselineRouteResult(
                     zone_id=zone.zone_id,
-                    shelter_id=best_shelter_id,
-                    node_ids=best_path,
-                    path_coords=self._extract_path_coords(best_path),
-                    total_travel_time=best_travel_time,
-                    failure_risk_pct=0.0,
-                    cutoff_time=0,
+                    shelter_id="none",
+                    node_ids=[],
+                    path_coords=[],
+                    total_travel_time=float("inf"),
                 )
+                for zone in self.zones
+            }
 
+        reversed_graph = self.G.reverse(copy=False)
+        shelter_nodes = list(self._shelter_node_to_id)
+        distances, reversed_paths = nx.multi_source_dijkstra(
+            reversed_graph,
+            shelter_nodes,
+            weight="travel_time",
+        )
+
+        results = {}
+        for zone in self.zones:
+            src = self._zone_nodes.get(zone.zone_id)
+            best: Optional[BaselineRouteResult] = None
+
+            if src in distances:
+                path = list(reversed(reversed_paths[src]))
+                shelter_node = path[-1]
+                shelter_id = self._shelter_node_to_id.get(shelter_node, "none")
+                best = BaselineRouteResult(
+                    zone_id=zone.zone_id,
+                    shelter_id=shelter_id,
+                    node_ids=path,
+                    path_coords=_path_coords(self.G, path),
+                    total_travel_time=float(distances[src]),
+                )
+            else:
+                logger.debug("No path from zone %s to any shelter", zone.zone_id)
+
+            if best is None:
+                best = BaselineRouteResult(
+                    zone_id=zone.zone_id,
+                    shelter_id="none",
+                    node_ids=[],
+                    path_coords=[],
+                    total_travel_time=float("inf"),
+                )
+            results[zone.zone_id] = best
         return results
 
     def compute_optimized_routes(
         self,
-        burn_prob: np.ndarray,
-        grid_bounds: GridBounds,
-        weights: CostWeights | None = None,
-    ) -> dict[str, BaselineRouteResult]:
-        """Compute optimized routes using a multi-factor cost function.
+        fire_grid: np.ndarray,
+        ignition_times: np.ndarray,
+        road_closures: dict[tuple[int, int], float],
+        civ_delay: float,
+        weights: Optional[CostWeights] = None,
+        zone_priority_order: Optional[list[str]] = None,
+    ) -> dict[str, OptimizedRouteResult]:
+        if weights is None:
+            weights = CostWeights()
 
-        cost(u,v) = alpha * travel_time
-                  + beta  * congestion
-                  + gamma * fire_exposure
-                  + delta * road_closure
+        edge_congestion: dict[tuple[int, int], float] = {}
 
-        Args:
-            burn_prob: 2D float array (H, W) of burn probabilities [0, 1].
-            grid_bounds: Grid metadata for mapping node lat/lon to grid cells.
-            weights: Cost function weights. Uses defaults if None.
+        zones_ordered = self.zones
+        if zone_priority_order:
+            zone_map = {z.zone_id: z for z in self.zones}
+            zones_ordered = [zone_map[zid] for zid in zone_priority_order if zid in zone_map]
 
-        Returns:
-            Dictionary mapping zone_id to BaselineRouteResult with strategy info.
-        """
-        w = weights or CostWeights()
-        shelter_nodes = self._get_shelter_nodes()
+        results = {}
+        for zone in zones_ordered:
+            src = self._zone_nodes.get(zone.zone_id)
+            best: Optional[OptimizedRouteResult] = None
 
-        # Precompute fire exposure for each node
-        node_fire_exposure = self._compute_node_fire_exposure(burn_prob, grid_bounds)
-
-        def cost_fn(u: int, v: int, edge_data: dict) -> float:
-            travel_time = edge_data.get("travel_time", 1.0)
-            capacity = edge_data.get("capacity", 1)
-            congestion = 1.0 / max(capacity, 1)
-            closure = edge_data.get("closure_probability", 0.0)
-            # Average fire exposure of the two endpoints
-            fire_exp = (node_fire_exposure.get(u, 0.0) + node_fire_exposure.get(v, 0.0)) / 2.0
-            return (
-                w.alpha * travel_time
-                + w.beta * congestion
-                + w.gamma * fire_exp
-                + w.delta * closure
-            )
-
-        results: dict[str, BaselineRouteResult] = {}
-
-        for zone in self.zones:
-            zone_node = self._find_nearest_node(zone.centroid_lat, zone.centroid_lon)
-            if zone_node is None:
-                results[zone.zone_id] = self._no_path_result(zone.zone_id)
+            if src is None:
+                results[zone.zone_id] = OptimizedRouteResult(
+                    zone_id=zone.zone_id,
+                    shelter_id="none",
+                    node_ids=[],
+                    path_coords=[],
+                    total_travel_time=float("inf"),
+                    total_cost=float("inf"),
+                )
                 continue
-
-            best_path: list[int] | None = None
-            best_cost = float("inf")
-            best_travel_time = float("inf")
-            best_shelter_id = ""
 
             for shelter in self.shelters:
-                shelter_node = shelter_nodes.get(shelter.shelter_id)
-                if shelter_node is None:
-                    continue
-                try:
-                    cost, path = nx.single_source_dijkstra(
-                        self.road_graph, zone_node, shelter_node,
-                        weight=cost_fn,
-                    )
-                except nx.NetworkXNoPath:
-                    continue
+                tgt = self._shelter_nodes[shelter.shelter_id]
 
-                if cost < best_cost:
-                    best_cost = cost
-                    best_path = path
-                    best_shelter_id = shelter.shelter_id
-                    # Compute actual travel time along the chosen path
-                    best_travel_time = sum(
-                        self.road_graph[path[i]][path[i + 1]].get("travel_time", 0.0)
+                def edge_cost(u, v, data):
+                    tt = data.get("travel_time", 1.0)
+                    cap = max(1, data.get("capacity", 400))
+                    cong = edge_congestion.get((u, v), 0.0) / cap
+                    fe = self._fire_exposure(u, v, fire_grid, ignition_times, civ_delay)
+                    rc = road_closures.get((u, v), 0.0)
+                    return (weights.alpha * tt + weights.beta * cong
+                            + weights.gamma * fe + weights.delta * rc)
+
+                try:
+                    path = nx.dijkstra_path(self.G, src, tgt, weight=edge_cost)
+                    tt = sum(
+                        self.G[path[i]][path[i + 1]]["travel_time"]
                         for i in range(len(path) - 1)
                     )
+                    cost = sum(
+                        edge_cost(path[i], path[i + 1], self.G[path[i]][path[i + 1]])
+                        for i in range(len(path) - 1)
+                    )
+                    if best is None or cost < best.total_cost:
+                        best = OptimizedRouteResult(
+                            zone_id=zone.zone_id,
+                            shelter_id=shelter.shelter_id,
+                            node_ids=path,
+                            path_coords=_path_coords(self.G, path),
+                            total_travel_time=tt,
+                            total_cost=cost,
+                        )
+                except nx.NetworkXNoPath:
+                    pass
 
-            if best_path is None:
-                results[zone.zone_id] = self._no_path_result(zone.zone_id)
-            else:
-                results[zone.zone_id] = BaselineRouteResult(
+            if best is None:
+                best = OptimizedRouteResult(
                     zone_id=zone.zone_id,
-                    shelter_id=best_shelter_id,
-                    node_ids=best_path,
-                    path_coords=self._extract_path_coords(best_path),
-                    total_travel_time=best_travel_time,
-                    failure_risk_pct=0.0,
-                    cutoff_time=0,
+                    shelter_id="none",
+                    node_ids=[],
+                    path_coords=[],
+                    total_travel_time=float("inf"),
+                    total_cost=float("inf"),
                 )
+            else:
+                for i in range(len(best.node_ids) - 1):
+                    e = (best.node_ids[i], best.node_ids[i + 1])
+                    edge_congestion[e] = edge_congestion.get(e, 0.0) + zone.population
 
+            results[zone.zone_id] = best
         return results
 
-    def _compute_node_fire_exposure(
+    def _fire_exposure(
         self,
-        burn_prob: np.ndarray,
-        grid_bounds: GridBounds,
-    ) -> dict[int, float]:
-        """Map each graph node to its burn probability from the grid."""
-        rows, cols = burn_prob.shape
-        lat_range = grid_bounds.max_lat - grid_bounds.min_lat
-        lon_range = grid_bounds.max_lon - grid_bounds.min_lon
-        exposure: dict[int, float] = {}
+        u: int, v: int,
+        fire_grid: np.ndarray,
+        ignition_times: np.ndarray,
+        civ_delay: float,
+    ) -> float:
+        """Fraction of cells along edge that are burning at traversal time."""
+        if self.grid_bounds is None or u not in self.G.nodes or v not in self.G.nodes:
+            return 0.0
+        gb = self.grid_bounds
+        u_data = self.G.nodes[u]
+        v_data = self.G.nodes[v]
+        tt = self.G[u][v].get("travel_time", 1.0)
+        traversal_time = civ_delay + tt / 2.0
 
-        for node_id, attrs in self.road_graph.nodes(data=True):
-            lat = attrs.get("lat")
-            lon = attrs.get("lon")
-            if lat is None or lon is None:
+        H, W = fire_grid.shape
+        n_samples = 3
+        burning_count = 0
+        for t in range(n_samples):
+            frac = t / max(1, n_samples - 1)
+            lat = u_data["lat"] + frac * (v_data["lat"] - u_data["lat"])
+            lon = u_data["lon"] + frac * (v_data["lon"] - u_data["lon"])
+
+            if gb.max_lat == gb.min_lat or gb.max_lon == gb.min_lon:
                 continue
-            # Map to grid cell (same logic as FireSpreadEngine.latlon_to_grid)
-            row_frac = (grid_bounds.max_lat - lat) / lat_range if lat_range > 0 else 0.0
-            col_frac = (lon - grid_bounds.min_lon) / lon_range if lon_range > 0 else 0.0
-            r = max(0, min(int(row_frac * (rows - 1)), rows - 1))
-            c = max(0, min(int(col_frac * (cols - 1)), cols - 1))
-            exposure[node_id] = float(burn_prob[r, c])
 
-        return exposure
+            row = int((gb.max_lat - lat) / (gb.max_lat - gb.min_lat) * H)
+            col = int((lon - gb.min_lon) / (gb.max_lon - gb.min_lon) * W)
+            row = max(0, min(H - 1, row))
+            col = max(0, min(W - 1, col))
+
+            cell_ignition = ignition_times[row, col]
+            if cell_ignition >= 0 and cell_ignition <= traversal_time:
+                burning_count += 1
+
+        return burning_count / n_samples
+
+    def compute_viability_scores(
+        self,
+        mc_run_results,  # list[SingleRunResult]
+        baseline_routes: dict[str, BaselineRouteResult],
+        max_timesteps: int = 180,
+    ) -> dict[str, ViabilityResult]:
+        """Compute viability scores across all MC runs."""
+        zone_ids = [z.zone_id for z in self.zones]
+        num_runs = len(mc_run_results)
+        results = {}
+
+        for zone_id in zone_ids:
+            baseline = baseline_routes.get(zone_id)
+            if baseline is None or not baseline.node_ids:
+                results[zone_id] = ViabilityResult(
+                    zone_id=zone_id,
+                    viability_score=0.0,
+                    cutoff_time=0,
+                    failure_risk_pct=100.0,
+                )
+                continue
+
+            # For each run, compute the latest start time at which the route
+            # still succeeds (fire hasn't reached any edge before traversal).
+            # A route "succeeds at start_time T" if for every edge, fire
+            # arrives after the evacuee passes through.
+            per_run_max_start: list[Optional[float]] = []
+
+            for run in mc_run_results:
+                path = baseline.node_ids
+                # Compute cumulative travel time at each node
+                cum_times = [0.0]
+                for i in range(len(path) - 1):
+                    u, v = path[i], path[i + 1]
+                    if u not in self.G.nodes or v not in self.G.nodes:
+                        cum_times.append(cum_times[-1] + 1.0)
+                    else:
+                        cum_times.append(cum_times[-1] + self.G[u][v].get("travel_time", 1.0))
+
+                # For each edge, find the earliest fire arrival along it
+                min_fire_arrival = float("inf")
+                for i in range(len(path) - 1):
+                    u, v = path[i], path[i + 1]
+                    if u not in self.G.nodes or v not in self.G.nodes:
+                        continue
+                    # Check fire arrival at edge midpoint
+                    if self.grid_bounds is None:
+                        continue
+                    gb = self.grid_bounds
+                    u_data = self.G.nodes[u]
+                    v_data = self.G.nodes[v]
+                    H, W = run.ignition_times.shape
+                    mid_lat = (u_data["lat"] + v_data["lat"]) / 2
+                    mid_lon = (u_data["lon"] + v_data["lon"]) / 2
+                    if gb.max_lat != gb.min_lat and gb.max_lon != gb.min_lon:
+                        row = max(0, min(H - 1, int((gb.max_lat - mid_lat) / (gb.max_lat - gb.min_lat) * H)))
+                        col = max(0, min(W - 1, int((mid_lon - gb.min_lon) / (gb.max_lon - gb.min_lon) * W)))
+                        cell_ign = run.ignition_times[row, col]
+                        if cell_ign >= 0:
+                            # Fire arrives at this cell at cell_ign.
+                            # Evacuee passes through at start_time + cum_times[midpoint]
+                            edge_midpoint_time = (cum_times[i] + cum_times[i + 1]) / 2
+                            # Max start = fire_arrival - edge_midpoint_time
+                            max_start_for_edge = cell_ign - edge_midpoint_time
+                            min_fire_arrival = min(min_fire_arrival, max_start_for_edge)
+
+                if min_fire_arrival == float("inf"):
+                    # Fire never reaches route — any start time works
+                    per_run_max_start.append(float(max_timesteps))
+                elif min_fire_arrival > 0:
+                    per_run_max_start.append(min_fire_arrival)
+                else:
+                    per_run_max_start.append(None)  # route already blocked
+
+            # Viability at start_time=0: fraction of runs where route succeeds
+            success_at_zero = sum(1 for ms in per_run_max_start if ms is not None and ms >= 0)
+            viability = (success_at_zero / num_runs) * 100.0
+            failure_risk = 100.0 - viability
+
+            # Cutoff time: latest T where viability > 50%
+            cutoff_time = None
+            for t in range(max_timesteps, -1, -1):
+                successes = sum(1 for ms in per_run_max_start if ms is not None and ms >= t)
+                if (successes / num_runs) * 100.0 > 50.0:
+                    cutoff_time = t
+                    break
+
+            results[zone_id] = ViabilityResult(
+                zone_id=zone_id,
+                viability_score=viability,
+                cutoff_time=cutoff_time,
+                failure_risk_pct=failure_risk,
+            )
+        return results
+
+    def compute_evacuation_ordering(
+        self,
+        zones: list[Zone],
+        fire_exposure_probs: dict[str, float],
+    ) -> list[ZoneOrderResult]:
+        max_pop = max((z.population for z in zones), default=1)
+        scored = []
+        for z in zones:
+            pop_weight = z.population / max_pop
+            fe_prob = fire_exposure_probs.get(z.zone_id, 0.0)
+            score = (
+                pop_weight
+                + (z.elderly_pct / 100.0) * 2.0
+                + (z.disability_pct / 100.0) * 1.5
+            ) * fe_prob
+            scored.append(ZoneOrderResult(zone_id=z.zone_id, priority_score=score))
+        scored.sort(key=lambda x: x.priority_score, reverse=True)
+        return scored

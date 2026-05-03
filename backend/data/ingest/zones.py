@@ -1,147 +1,175 @@
+"""Fetch population zones from US Census ACS + TIGER."""
+from __future__ import annotations
+
 import json
 import logging
+import math
 from pathlib import Path
 
 import requests
-from shapely.geometry import Polygon, mapping, shape
 
-from backend.data.ingest.overpass import IngestError
+logger = logging.getLogger(__name__)
 
-log = logging.getLogger(__name__)
-
-TIGER_URL = "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/tigerWMS_ACS2023/MapServer/10/query"
-ACS_URL = "https://api.census.gov/data/2022/acs/acs5"
-ACS_VARS = "B01001_001E,B01001_020E,B01001_021E,B01001_022E,B01001_023E,B01001_024E,B01001_025E,B18101_001E,B18101_004E,B18101_007E"
+CENSUS_ACS_URL = "https://api.census.gov/data/2022/acs/acs5"
+TIGER_URL = "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/tigerWMS_ACS2022/MapServer/8/query"
 
 
-def _largest_polygon(geom) -> Polygon:
-    """Return the largest polygon from a MultiPolygon, or the polygon itself."""
-    s = shape(geom)
-    if s.geom_type == "MultiPolygon":
-        return max(s.geoms, key=lambda p: p.area)
-    return s
-
-
-def _fetch_tiger(bbox: tuple[float, float, float, float]) -> list[dict]:
-    min_lon, min_lat, max_lon, max_lat = bbox
-    resp = requests.get(TIGER_URL, params={
-        "geometry": f"{min_lon},{min_lat},{max_lon},{max_lat}",
-        "geometryType": "esriGeometryEnvelope",
-        "outFields": "GEOID,STATE,COUNTY,BLKGRP",
-        "f": "geojson",
-        "outSR": "4326",
-        "inSR": "4326",
-        "spatialRel": "esriSpatialRelIntersects",
-    }, timeout=30)
-    resp.raise_for_status()
-    return resp.json()["features"]
-
-
-def _fetch_acs(state: str, county: str, key: str | None) -> dict[str, dict]:
-    params = {"get": ACS_VARS, "for": "block group:*", "in": f"state:{state} county:{county}"}
-    if key:
-        params["key"] = key
-    resp = requests.get(ACS_URL, params=params, timeout=30)
-    resp.raise_for_status()
-    rows = resp.json()
-    headers = rows[0]
-    _geo_keys = {"state", "county", "tract", "block group"}
-    result = {}
-    for row in rows[1:]:
-        d = dict(zip(headers, row))
-        geoid = d["state"] + d["county"] + d["tract"] + d["block group"]
-        result[geoid] = {k: int(v) if v is not None else 0 for k, v in d.items() if k not in _geo_keys}
-    return result
-
-
-def _compute_props(geoid: str, acs: dict) -> dict:
-    pop = acs.get("B01001_001E", 0)
-    elderly = sum(acs.get(k, 0) for k in ["B01001_020E", "B01001_021E", "B01001_022E", "B01001_023E", "B01001_024E", "B01001_025E"])
-    dis_universe = acs.get("B18101_001E", 0)
-    dis_count = acs.get("B18101_004E", 0) + acs.get("B18101_007E", 0)
-    elderly_pct = elderly / pop * 100 if pop > 0 else 0.0
-    disability_pct = dis_count / dis_universe * 100 if dis_universe > 0 else 0.0
-    return {
-        "zone_id": geoid,
-        "population": pop,
-        "elderly_pct": round(elderly_pct, 2),
-        "disability_pct": round(disability_pct, 2),
-        "evacuation_priority_weight": round(1.0 + elderly_pct / 50 + disability_pct / 25, 4),
-    }
-
-
-def _fallback_zones(bbox: tuple[float, float, float, float]) -> list[dict]:
-    min_lon, min_lat, max_lon, max_lat = bbox
-    mid_lon = (min_lon + max_lon) / 2
-    mid_lat = (min_lat + max_lat) / 2
-    quads = [
-        (min_lon, min_lat, mid_lon, mid_lat),
-        (mid_lon, min_lat, max_lon, mid_lat),
-        (min_lon, mid_lat, mid_lon, max_lat),
-        (mid_lon, mid_lat, max_lon, max_lat),
-    ]
-    features = []
-    for i, (x0, y0, x1, y1) in enumerate(quads):
-        poly = Polygon([(x0, y0), (x1, y0), (x1, y1), (x0, y1)])
-        c = poly.centroid
-        features.append({
-            "type": "Feature",
-            "geometry": mapping(poly),
-            "properties": {
-                "zone_id": f"synthetic_{i}",
-                "population": 2000,
-                "elderly_pct": 20.0,
-                "disability_pct": 8.0,
-                "evacuation_priority_weight": round(1.0 + 20.0 / 50 + 8.0 / 25, 4),
-                "centroid_lat": c.y,
-                "centroid_lon": c.x,
-            },
-        })
-    return features
+def _centroid(coords: list) -> tuple[float, float]:
+    """Compute centroid of a polygon ring."""
+    ring = coords[0] if coords else []
+    if not ring:
+        return 0.0, 0.0
+    lons = [p[0] for p in ring]
+    lats = [p[1] for p in ring]
+    return sum(lats) / len(lats), sum(lons) / len(lons)
 
 
 def fetch_zones(
-    bbox: tuple[float, float, float, float],
+    min_lat: float, max_lat: float, min_lon: float, max_lon: float,
     output_path: Path,
-    census_api_key: str | None = None,
-) -> None:
+) -> dict:
+    """Fetch Census block groups with demographics and geometry."""
     try:
-        tiger_features = _fetch_tiger(bbox)
+        # Get state/county FIPS from centroid
+        lat_c = (min_lat + max_lat) / 2
+        lon_c = (min_lon + max_lon) / 2
 
-        # Collect unique (state, county) pairs
-        state_county_pairs: set[tuple[str, str]] = {
-            (f["properties"]["STATE"], f["properties"]["COUNTY"])
-            for f in tiger_features
+        geo_url = f"https://geocoding.geo.census.gov/geocoder/geographies/coordinates"
+        r = requests.get(geo_url, params={
+            "x": lon_c, "y": lat_c,
+            "benchmark": "Public_AR_Current",
+            "vintage": "Current_Current",
+            "format": "json",
+        }, timeout=30, headers={"User-Agent": "EvacuAI/1.0"})
+        r.raise_for_status()
+
+        geo_data = r.json()
+        geographies = geo_data.get("result", {}).get("geographies", {})
+        counties = geographies.get("Counties", [{}])
+        state_fips = counties[0].get("STATE", "06")
+        county_fips = counties[0].get("COUNTY", "007")
+
+        # Fetch ACS demographics for block groups in county
+        # B01001: male 65+ (020-025), female 65+ (044-049)
+        # C18108_001E: total pop for disability, C18108_002E: with disability
+        elderly_male_cols = ",".join(f"B01001_0{c:02d}E" for c in range(20, 26))
+        elderly_female_cols = ",".join(f"B01001_0{c:02d}E" for c in range(44, 50))
+        acs_r = requests.get(CENSUS_ACS_URL, params={
+            "get": f"B01001_001E,{elderly_male_cols},{elderly_female_cols},C18108_001E,C18108_002E",
+            "for": "block group:*",
+            "in": f"state:{state_fips} county:{county_fips}",
+        }, timeout=30, headers={"User-Agent": "EvacuAI/1.0"})
+        acs_r.raise_for_status()
+        acs_rows = acs_r.json()
+        headers = acs_rows[0]
+        acs_data = {
+            f"{row[headers.index('state')]}{row[headers.index('county')]}{row[headers.index('tract')]}{row[headers.index('block group')]}": row
+            for row in acs_rows[1:]
         }
 
-        # Fetch ACS for each pair
-        acs_data: dict[str, dict] = {}
-        for state, county in state_county_pairs:
-            acs_data.update(_fetch_acs(state, county, census_api_key))
+        # Fetch TIGER geometries
+        bbox = f"{min_lon},{min_lat},{max_lon},{max_lat}"
+        tiger_r = requests.get(TIGER_URL, params={
+            "where": f"STATE='{state_fips}' AND COUNTY='{county_fips}'",
+            "outFields": "GEOID,STATE,COUNTY,TRACT,BLKGRP",
+            "geometryType": "esriGeometryEnvelope",
+            "spatialRel": "esriSpatialRelIntersects",
+            "inSR": "4326",
+            "outSR": "4326",
+            "f": "geojson",
+            "returnGeometry": "true",
+        }, timeout=60, headers={"User-Agent": "EvacuAI/1.0"})
+        tiger_r.raise_for_status()
+        tiger_data = tiger_r.json()
 
         features = []
-        for feat in tiger_features:
-            geoid = feat["properties"]["GEOID"]
-            poly = _largest_polygon(feat["geometry"])
-            c = poly.centroid
-            acs = acs_data.get(geoid, {})
-            props = _compute_props(geoid, acs)
-            props["centroid_lat"] = c.y
-            props["centroid_lon"] = c.x
-            features.append({"type": "Feature", "geometry": mapping(poly), "properties": props})
+        max_pop = 1
+        for feat in tiger_data.get("features", []):
+            props = feat.get("properties", {})
+            geoid = props.get("GEOID", "")
+            geom = feat.get("geometry", {})
 
-    except Exception as exc:
-        log.warning("Census API fetch failed (%s); using synthetic fallback zones.", exc)
-        features = _fallback_zones(bbox)
+            row = acs_data.get(geoid, None)
+            if row is None:
+                continue
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps({"type": "FeatureCollection", "features": features}, indent=2))
+            idx = headers.index
+            total_pop = int(row[idx("B01001_001E")] or 0)
+            # Elderly: male 65+ (cols 020-025) + female 65+ (cols 044-049)
+            elderly_male = sum(int(row[idx(f"B01001_0{c:02d}E")] or 0) for c in range(20, 26))
+            elderly_female = sum(int(row[idx(f"B01001_0{c:02d}E")] or 0) for c in range(44, 50))
+            elderly = elderly_male + elderly_female
+            # Disability: C18108_002E (with disability) out of C18108_001E (total)
+            disabled = int(row[idx("C18108_002E")] or 0)
+            max_pop = max(max_pop, total_pop)
 
-    # Write warning sidecar if synthetic data was used
-    warnings_path = output_path.parent / "_warnings.json"
-    warnings = json.loads(warnings_path.read_text()) if warnings_path.exists() else []
-    if any(f.get("properties", {}).get("zone_id", "").startswith("synthetic_") for f in features):
-        warnings.append({"code": "synthetic_zones", "message": "Census data unavailable — using synthetic population zones. Demographics are estimated.", "severity": "warning"})
-        warnings_path.write_text(json.dumps(warnings, indent=2))
+            elderly_pct = (elderly / total_pop * 100) if total_pop > 0 else 0.0
+            disability_pct = (disabled / total_pop * 100) if total_pop > 0 else 0.0
 
-    log.info("Wrote %d zones to %s", len(features), output_path)
+            coords = geom.get("coordinates", [[]])
+            c_lat, c_lon = _centroid(coords)
+
+            features.append({
+                "type": "Feature",
+                "geometry": geom,
+                "properties": {
+                    "zone_id": geoid,
+                    "population": total_pop,
+                    "elderly_pct": round(elderly_pct, 2),
+                    "disability_pct": round(disability_pct, 2),
+                    "evacuation_priority_weight": 1.0,
+                    "centroid_lat": round(c_lat, 6),
+                    "centroid_lon": round(c_lon, 6),
+                },
+            })
+
+        result = {"type": "FeatureCollection", "features": features}
+        with open(output_path, "w") as f:
+            json.dump(result, f)
+        logger.info("Zones saved: %s (%d features)", output_path, len(features))
+        return result
+
+    except Exception as e:
+        logger.warning("Census zones fetch failed: %s", e)
+        return _synthetic_zones(min_lat, max_lat, min_lon, max_lon, output_path)
+
+
+def _synthetic_zones(
+    min_lat: float, max_lat: float, min_lon: float, max_lon: float,
+    output_path: Path,
+) -> dict:
+    logger.warning("Using synthetic zones (DEGRADED DATA)")
+    lat_mid = (min_lat + max_lat) / 2
+    lon_mid = (min_lon + max_lon) / 2
+    features = []
+    for i, (clat, clon) in enumerate([
+        (lat_mid - 0.05, lon_mid - 0.05),
+        (lat_mid - 0.05, lon_mid + 0.05),
+        (lat_mid + 0.05, lon_mid - 0.05),
+        (lat_mid + 0.05, lon_mid + 0.05),
+    ]):
+        d = 0.04
+        features.append({
+            "type": "Feature",
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[
+                    [clon - d, clat - d], [clon + d, clat - d],
+                    [clon + d, clat + d], [clon - d, clat + d],
+                    [clon - d, clat - d],
+                ]],
+            },
+            "properties": {
+                "zone_id": f"zone_{i+1:03d}",
+                "population": 2000 + i * 500,
+                "elderly_pct": 15.0 + i * 2,
+                "disability_pct": 8.0 + i,
+                "evacuation_priority_weight": 1.0,
+                "centroid_lat": clat,
+                "centroid_lon": clon,
+            },
+        })
+    result = {"type": "FeatureCollection", "features": features}
+    with open(output_path, "w") as f:
+        json.dump(result, f)
+    return result

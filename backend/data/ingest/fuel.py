@@ -1,125 +1,92 @@
-import json
+"""Fetch NLCD land cover fuel grid for a bounding box via MRLC WCS."""
+from __future__ import annotations
+
+import io
 import logging
-import tempfile
-import time
 from pathlib import Path
 
 import numpy as np
 import requests
 
-from backend.data.ingest.overpass import IngestError
+logger = logging.getLogger(__name__)
 
-try:
-    import rasterio
-    from rasterio.enums import Resampling
-    from rasterio.warp import reproject
-    _RASTERIO = True
-except ImportError:
-    _RASTERIO = False
+NLCD_WCS_URL = "https://www.mrlc.gov/geoserver/mrlc_display/NLCD_2021_Land_Cover_L48/wcs"
 
-log = logging.getLogger(__name__)
-
-_BASE = "https://lfps.usgs.gov/arcgis/rest/services/LandfireProductService/GPServer/LandfireProductService"
-
-FBFM40 = {
-    91: 0.0, 92: 0.0, 93: 0.0, 98: 0.0, 99: 0.0,
-    1: 0.3, 2: 0.4, 3: 0.5, 4: 0.6, 5: 0.5, 6: 0.4, 7: 0.5, 8: 0.3, 9: 0.4, 10: 0.6,
-    101: 0.4, 102: 0.5, 103: 0.6, 104: 0.8,
-    105: 0.8, 106: 0.9, 107: 1.0, 108: 1.1, 109: 1.2,
-    121: 0.5, 122: 0.6, 123: 0.7, 124: 0.9,
-    141: 0.6, 142: 0.7, 143: 0.7, 144: 0.8, 145: 0.8, 146: 0.9, 147: 0.9, 148: 1.0, 149: 1.1,
-    161: 0.5, 162: 0.6, 163: 0.7, 164: 0.8, 165: 0.9,
-    181: 0.3, 182: 0.3, 183: 0.4, 184: 0.4, 185: 0.5, 186: 0.5, 187: 0.6, 188: 0.6, 189: 0.7,
-    201: 0.8, 202: 1.0, 203: 1.2, 204: 1.5,
+# NLCD 2021 land cover class → fire spread rate multiplier (0.0–1.5)
+NLCD_TO_MULTIPLIER = {
+    11: 0.0,   # Open Water
+    12: 0.0,   # Perennial Ice/Snow
+    21: 0.05,  # Developed, Open Space
+    22: 0.02,  # Developed, Low Intensity
+    23: 0.01,  # Developed, Medium Intensity
+    24: 0.0,   # Developed, High Intensity
+    31: 0.1,   # Barren Rock/Sand/Clay
+    41: 0.9,   # Deciduous Forest
+    42: 1.3,   # Evergreen Forest
+    43: 1.1,   # Mixed Forest
+    52: 1.2,   # Shrub/Scrub
+    71: 1.0,   # Grassland/Herbaceous
+    81: 0.6,   # Pasture/Hay
+    82: 0.5,   # Cultivated Crops
+    90: 0.4,   # Woody Wetlands
+    95: 0.3,   # Emergent Herbaceous Wetlands
 }
 
 
-def _map_codes(arr: np.ndarray) -> np.ndarray:
-    out = np.full(arr.shape, 0.5, dtype=np.float32)
-    for code, rate in FBFM40.items():
-        out[arr == code] = rate
-    return out
-
-
-def _synthetic(grid_rows: int, grid_cols: int) -> np.ndarray:
-    rng = np.random.default_rng()
-    return np.clip(rng.normal(0.6, 0.2, (grid_rows, grid_cols)), 0.0, 1.5).astype(np.float32)
+def _nlcd_to_multiplier(code: int) -> float:
+    return NLCD_TO_MULTIPLIER.get(int(code), 0.5)
 
 
 def fetch_fuel_grid(
-    bbox: tuple[float, float, float, float],
-    grid_rows: int,
-    grid_cols: int,
+    min_lat: float, max_lat: float, min_lon: float, max_lon: float,
+    grid_rows: int, grid_cols: int,
     output_path: Path,
-    timeout: int = 300,
-) -> None:
-    min_lon, min_lat, max_lon, max_lat = bbox
-    used_synthetic = False
+) -> np.ndarray:
+    """
+    Fetch NLCD 2021 land cover raster via WCS and convert to spread rate multipliers.
+    Falls back to a synthetic grid if the API is unavailable.
+    """
     try:
-        if not _RASTERIO:
-            raise IngestError("rasterio not available")
+        params = [
+            ("SERVICE", "WCS"),
+            ("VERSION", "2.0.1"),
+            ("REQUEST", "GetCoverage"),
+            ("COVERAGEID", "NLCD_2021_Land_Cover_L48"),
+            ("FORMAT", "image/tiff"),
+            ("SUBSET", f"Long({min_lon},{max_lon})"),
+            ("SUBSET", f"Lat({min_lat},{max_lat})"),
+            ("SUBSETTINGCRS", "http://www.opengis.net/def/crs/EPSG/0/4326"),
+        ]
+        r = requests.get(NLCD_WCS_URL, params=params, timeout=60,
+                         headers={"User-Agent": "EvacuAI/1.0"})
+        r.raise_for_status()
 
-        aoi = json.dumps({
-            "xmin": min_lon, "ymin": min_lat, "xmax": max_lon, "ymax": max_lat,
-            "spatialReference": {"wkid": 4326},
-        })
-        resp = requests.post(
-            f"{_BASE}/submitJob",
-            data={"Layer_List": "FBFM40", "Area_of_Interest": aoi, "Output_Format": "GeoTIFF", "f": "json"},
-            timeout=60,
-        )
-        resp.raise_for_status()
-        job_id = resp.json()["jobId"]
-
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            status = requests.get(f"{_BASE}/jobs/{job_id}?f=json", timeout=30).json()
-            js = status.get("jobStatus", "")
-            if js == "esriJobSucceeded":
-                break
-            if "Failed" in js or "Cancelled" in js:
-                raise IngestError(f"LANDFIRE job {job_id} ended with status {js}")
-            time.sleep(5)
-        else:
-            raise IngestError(f"LANDFIRE job {job_id} timed out after {timeout}s")
-
-        result = requests.get(f"{_BASE}/jobs/{job_id}/results/Output_File?f=json", timeout=30).json()
-        tif_url = result["value"]["url"]
-
-        with tempfile.NamedTemporaryFile(suffix=".tif", delete=False) as tmp:
-            tmp_path = Path(tmp.name)
-            with requests.get(tif_url, stream=True, timeout=120) as dl:
-                dl.raise_for_status()
-                for chunk in dl.iter_content(65536):
-                    tmp.write(chunk)
-
-        with rasterio.open(tmp_path) as src:
-            dst_transform = rasterio.transform.from_bounds(min_lon, min_lat, max_lon, max_lat, grid_cols, grid_rows)
-            dst_arr = np.empty((grid_rows, grid_cols), dtype=np.int32)
-            reproject(
-                source=rasterio.band(src, 1),
-                destination=dst_arr,
-                src_crs=src.crs,
-                dst_transform=dst_transform,
-                dst_crs="EPSG:4326",
+        import rasterio
+        from rasterio.enums import Resampling
+        with rasterio.open(io.BytesIO(r.content)) as src:
+            # Resample to target grid dimensions
+            data = src.read(
+                1,
+                out_shape=(grid_rows, grid_cols),
                 resampling=Resampling.nearest,
             )
 
-        tmp_path.unlink(missing_ok=True)
-        grid = _map_codes(dst_arr)
+        grid = np.vectorize(_nlcd_to_multiplier)(data).astype(np.float32)
+        np.save(str(output_path), grid)
+        logger.info("NLCD fuel grid saved: %s (shape %s)", output_path, grid.shape)
+        return grid
 
-    except Exception as exc:
-        log.warning("LANDFIRE fetch failed (%s); using synthetic fuel grid", exc)
-        grid = _synthetic(grid_rows, grid_cols)
-        used_synthetic = True
+    except Exception as e:
+        logger.warning("NLCD fetch failed (%s), using synthetic fuel grid", e)
+        return _synthetic_fuel_grid(grid_rows, grid_cols, output_path)
 
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    np.save(output_path, grid)
 
-    # Write warning sidecar if synthetic data was used
-    if used_synthetic:
-        warnings_path = output_path.parent / "_warnings.json"
-        warnings = json.loads(warnings_path.read_text()) if warnings_path.exists() else []
-        warnings.append({"code": "synthetic_fuel", "message": "LANDFIRE fuel data unavailable — using synthetic fuel grid. Fire spread rates are randomized.", "severity": "warning"})
-        warnings_path.write_text(json.dumps(warnings, indent=2))
+def _synthetic_fuel_grid(rows: int, cols: int, output_path: Path) -> np.ndarray:
+    """Generate a realistic-looking synthetic fuel grid as fallback."""
+    rng = np.random.default_rng(42)
+    grid = rng.uniform(0.3, 1.2, size=(rows, cols)).astype(np.float32)
+    non_burnable = rng.random(size=(rows, cols)) < 0.10
+    grid[non_burnable] = 0.0
+    np.save(str(output_path), grid)
+    logger.warning("Synthetic fuel grid written to %s (DEGRADED DATA)", output_path)
+    return grid

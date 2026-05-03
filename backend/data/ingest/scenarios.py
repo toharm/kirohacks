@@ -1,48 +1,47 @@
+"""Generate scenario_presets.json."""
+from __future__ import annotations
+
 import json
 from pathlib import Path
 
 
-def generate_scenarios(
-    bbox: tuple[float, float, float, float],  # (min_lon, min_lat, max_lon, max_lat)
-    center_lat: float,
-    center_lon: float,
+def generate_scenario_presets(
+    lat: float, lon: float,
     output_path: Path,
-) -> None:
-    min_lon, min_lat, max_lon, max_lat = bbox
-    offset = 0.01
-
+    region_name: str = "",
+) -> list[dict]:
     presets = [
         {
-            "name": "Moderate Wind",
-            "description": "Moderate southwest wind with average humidity conditions.",
-            "ignition_lat": center_lat,
-            "ignition_lon": center_lon,
-            "wind_speed_mph": 10.0,
-            "wind_direction_deg": 225.0,
-            "wind_gust_mph": 15.0,
-            "relative_humidity": 25.0,
-        },
-        {
-            "name": "High Wind Event",
-            "description": "Strong northeast wind with low humidity; ignition at NE corner.",
-            "ignition_lat": max_lat - offset,
-            "ignition_lon": max_lon - offset,
+            "name": "Fast Wind Shift",
+            "description": f"High wind NE scenario for {region_name}",
+            "ignition_lat": lat,
+            "ignition_lon": lon,
             "wind_speed_mph": 25.0,
             "wind_direction_deg": 45.0,
             "wind_gust_mph": 40.0,
             "relative_humidity": 10.0,
         },
         {
-            "name": "Red Flag Warning",
-            "description": "Extreme north wind with critically low humidity; ignition at north edge.",
-            "ignition_lat": max_lat - offset,
-            "ignition_lon": center_lon,
-            "wind_speed_mph": 35.0,
+            "name": "Night Evacuation",
+            "description": f"Low wind SW scenario for {region_name}",
+            "ignition_lat": lat,
+            "ignition_lon": lon,
+            "wind_speed_mph": 10.0,
+            "wind_direction_deg": 225.0,
+            "wind_gust_mph": 15.0,
+            "relative_humidity": 30.0,
+        },
+        {
+            "name": "School Zone",
+            "description": f"N wind scenario near schools for {region_name}",
+            "ignition_lat": lat,
+            "ignition_lon": lon,
+            "wind_speed_mph": 15.0,
             "wind_direction_deg": 0.0,
-            "wind_gust_mph": 55.0,
-            "relative_humidity": 5.0,
+            "wind_gust_mph": 25.0,
+            "relative_humidity": 15.0,
         },
     ]
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(presets, indent=2))
+    with open(output_path, "w") as f:
+        json.dump(presets, f, indent=2)
+    return presets

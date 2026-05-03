@@ -1,0 +1,9 @@
+{
+  "min_lat": 38.35031,
+  "max_lat": 38.53049,
+  "min_lon": -122.82912,
+  "max_lon": -122.59908,
+  "cell_size_m": 100.0,
+  "grid_rows": 199,
+  "grid_cols": 199
+}

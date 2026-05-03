@@ -1,0 +1,14 @@
+{
+  "region_name": "Big Sur, CA",
+  "bounding_box": {
+    "min_lat": 36.18031,
+    "max_lat": 36.36049,
+    "min_lon": -121.919842,
+    "max_lon": -121.696358
+  },
+  "default_ignition_point": {
+    "lat": 36.2704,
+    "lon": -121.8081
+  },
+  "fire_perimeter_file": null
+}

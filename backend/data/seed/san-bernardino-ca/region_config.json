@@ -1,0 +1,14 @@
+{
+  "region_name": "San Bernardino, CA",
+  "bounding_box": {
+    "min_lat": 34.09381,
+    "max_lat": 34.27399,
+    "min_lon": -117.408105,
+    "max_lon": -117.190295
+  },
+  "default_ignition_point": {
+    "lat": 34.1839,
+    "lon": -117.2992
+  },
+  "fire_perimeter_file": null
+}
