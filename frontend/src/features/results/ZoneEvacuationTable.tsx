@@ -1,98 +1,116 @@
-/**
- * ZoneEvacuationTable — sortable table of zone results
- */
+import { useState } from "react";
+import { useSimulationState } from "../../context/useSimulationState";
+import type { ZoneResult } from "../../types/api";
 
-import { useState, useCallback } from 'react';
-import { cn } from '@/lib/cn';
-import type { ZoneResult } from '@/types/api';
+type SortKey =
+  | "zone_id"
+  | "population"
+  | "cutoff_time"
+  | "evacuation_priority_score"
+  | "failure_risk_pct";
 
-type SortKey = 'zone_id' | 'population' | 'cutoff_time' | 'optimized_viability';
-type SortDir = 'asc' | 'desc';
-
-function urgencyColor(cutoff: number) {
-  if (cutoff > 30) return 'bg-zone-safe';
-  if (cutoff > 15) return 'bg-zone-warning';
-  if (cutoff > 5)  return 'bg-fire-medium';
-  return 'bg-zone-critical';
+interface ZoneEvacuationTableProps {
+  zones: ZoneResult[];
 }
 
-export function ZoneEvacuationTable({
-  zones,
-  selectedZoneId,
-  onSelectZone,
-}: {
-  zones: ZoneResult[];
-  selectedZoneId: string | null;
-  onSelectZone: (id: string) => void;
-}) {
-  const [sortKey, setSortKey] = useState<SortKey>('cutoff_time');
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
-
-  const handleSort = useCallback((key: SortKey) => {
-    setSortDir((d) => (sortKey === key ? (d === 'asc' ? 'desc' : 'asc') : 'asc'));
-    setSortKey(key);
-  }, [sortKey]);
-
-  const sorted = [...zones].sort((a, b) => {
-    const av = a.properties[sortKey];
-    const bv = b.properties[sortKey];
-    const cmp = typeof av === 'string' ? av.localeCompare(bv as string) : (av as number) - (bv as number);
-    return sortDir === 'asc' ? cmp : -cmp;
-  });
-
-  const cols: { key: SortKey; label: string }[] = [
-    { key: 'zone_id', label: 'Zone' },
-    { key: 'population', label: 'Pop' },
-    { key: 'cutoff_time', label: 'Cutoff' },
-    { key: 'optimized_viability', label: 'Viability' },
-  ];
+export function ZoneEvacuationTable({ zones }: ZoneEvacuationTableProps) {
+  const { state, dispatch } = useSimulationState();
+  const [sortKey, setSortKey] = useState<SortKey>("evacuation_priority_score");
+  const sortedZones = zones.slice().sort((a, b) => compareZones(a, b, sortKey));
 
   return (
-    <div>
-      <div className="text-xs uppercase tracking-wider text-gray-500 mb-2">Zone Details</div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-xs">
+    <section className="results-section">
+      <div className="section-title">
+        <h3>Zone Evacuation Table</h3>
+        <span>{zones.length} zones</span>
+      </div>
+      <div className="table-scroll">
+        <table className="zone-table">
           <thead>
-            <tr className="border-b border-surface-border">
-              {cols.map((col) => (
-                <th
-                  key={col.key}
-                  scope="col"
-                  aria-sort={sortKey === col.key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
-                  onClick={() => handleSort(col.key)}
-                  className="text-xs uppercase tracking-wider text-gray-500 pb-2 pr-3 cursor-pointer hover:text-gray-300 transition-colors select-none"
-                >
-                  {col.label} {sortKey === col.key ? (sortDir === 'asc' ? '↑' : '↓') : ''}
-                </th>
-              ))}
+            <tr>
+              <Header label="Zone ID" sortKey="zone_id" active={sortKey} setSortKey={setSortKey} />
+              <Header label="Pop" sortKey="population" active={sortKey} setSortKey={setSortKey} />
+              <Header label="Cutoff" sortKey="cutoff_time" active={sortKey} setSortKey={setSortKey} />
+              <Header
+                label="Priority"
+                sortKey="evacuation_priority_score"
+                active={sortKey}
+                setSortKey={setSortKey}
+              />
+              <th>Base</th>
+              <th>Opt</th>
+              <Header label="Risk" sortKey="failure_risk_pct" active={sortKey} setSortKey={setSortKey} />
+              <th>Status</th>
             </tr>
           </thead>
           <tbody>
-            {sorted.map((zone) => {
-              const p = zone.properties;
-              const isSelected = p.zone_id === selectedZoneId;
-              return (
-                <tr
-                  key={p.zone_id}
-                  onClick={() => onSelectZone(p.zone_id)}
-                  className={cn(
-                    'border-b border-surface-border/50 cursor-pointer transition-colors',
-                    isSelected ? 'bg-accent-primary/10' : 'hover:bg-surface-hover'
-                  )}
-                >
-                  <td className="py-2 pr-3 font-mono text-gray-200 flex items-center gap-1.5">
-                    <span className={cn('w-2.5 h-2.5 rounded-full shrink-0', urgencyColor(p.cutoff_time))} />
-                    {p.zone_id}
-                  </td>
-                  <td className="py-2 pr-3 text-gray-300">{p.population.toLocaleString()}</td>
-                  <td className="py-2 pr-3 text-gray-300">{p.cutoff_time}m</td>
-                  <td className="py-2 font-mono text-route-safe">{p.optimized_viability}%</td>
-                </tr>
-              );
-            })}
+            {sortedZones.map((zone) => (
+              <tr
+                className={state.selectedZoneId === zone.zone_id ? "is-selected" : ""}
+                key={zone.zone_id}
+                onClick={() => dispatch({ type: "zoneSelected", zoneId: zone.zone_id })}
+              >
+                <td>{zone.zone_id}</td>
+                <td>{zone.population.toLocaleString()}</td>
+                <td>{zone.cutoff_time ?? "n/a"}m</td>
+                <td>{zone.evacuation_priority_score.toFixed(0)}</td>
+                <td>{(zone.baseline_route.viability_score ?? 0).toFixed(0)}%</td>
+                <td>{(zone.optimized_route?.viability_score ?? 0).toFixed(0)}%</td>
+                <td>{(zone.failure_risk_pct ?? 0).toFixed(0)}%</td>
+                <td>
+                  <span className={`status-pill status-pill--${statusFor(zone.cutoff_time)}`}>
+                    {statusFor(zone.cutoff_time)}
+                  </span>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
-    </div>
+    </section>
   );
+}
+
+function Header({
+  label,
+  sortKey,
+  active,
+  setSortKey,
+}: {
+  label: string;
+  sortKey: SortKey;
+  active: SortKey;
+  setSortKey: (sortKey: SortKey) => void;
+}) {
+  return (
+    <th>
+      <button
+        className={active === sortKey ? "table-sort is-active" : "table-sort"}
+        type="button"
+        onClick={() => setSortKey(sortKey)}
+      >
+        {label}
+      </button>
+    </th>
+  );
+}
+
+function compareZones(a: ZoneResult, b: ZoneResult, key: SortKey) {
+  if (key === "zone_id") {
+    return a.zone_id.localeCompare(b.zone_id);
+  }
+  return Number(b[key] ?? 0) - Number(a[key] ?? 0);
+}
+
+function statusFor(cutoff?: number | null) {
+  if (cutoff === null || cutoff === undefined) {
+    return "warning";
+  }
+  if (cutoff < 5) {
+    return "critical";
+  }
+  if (cutoff < 15) {
+    return "warning";
+  }
+  return "safe";
 }

@@ -1,32 +1,52 @@
-/**
- * EvacuationOrdering — ordered list of zones by evacuation priority
- */
+import { useSimulationState } from "../../context/useSimulationState";
+import type { ZoneResult } from "../../types/api";
 
-import { cn } from '@/lib/cn';
-import type { EvacuationOrderEntry } from '@/types/api';
-
-function urgencyColor(cutoff: number) {
-  if (cutoff > 30) return 'bg-zone-safe';
-  if (cutoff > 15) return 'bg-zone-warning';
-  if (cutoff > 5)  return 'bg-fire-medium';
-  return 'bg-zone-critical';
+interface EvacuationOrderingProps {
+  zones: ZoneResult[];
+  ordering: string[];
 }
 
-export function EvacuationOrdering({ ordering }: { ordering: EvacuationOrderEntry[] }) {
+export function EvacuationOrdering({ zones, ordering }: EvacuationOrderingProps) {
+  const { dispatch } = useSimulationState();
+  const zoneLookup = new Map(zones.map((zone) => [zone.zone_id, zone]));
+
   return (
-    <div>
-      <div className="text-xs uppercase tracking-wider text-gray-500 mb-2">Evacuation Order</div>
-      <ol className="space-y-2">
-        {ordering.map((entry, i) => (
-          <li key={entry.zone_id} className="flex items-center gap-3 p-2 rounded-md bg-surface-overlay">
-            <span className="text-xs font-mono text-gray-500 w-4 shrink-0">{i + 1}</span>
-            <span className={cn('w-2.5 h-2.5 rounded-full shrink-0', urgencyColor(entry.cutoff_time))} />
-            <span className="font-mono text-sm text-gray-200 flex-1">{entry.zone_id}</span>
-            <span className="text-xs text-gray-400">{entry.population.toLocaleString()}</span>
-            <span className="text-xs font-mono text-gray-500">{entry.cutoff_time}m</span>
-          </li>
-        ))}
+    <section className="results-section">
+      <div className="section-title">
+        <h3>Evacuation Ordering</h3>
+        <span>priority first</span>
+      </div>
+      <ol className="ordering-list">
+        {ordering.map((zoneId) => {
+          const zone = zoneLookup.get(zoneId);
+          if (!zone) {
+            return null;
+          }
+
+          return (
+            <li key={zone.zone_id}>
+              <button type="button" onClick={() => dispatch({ type: "zoneSelected", zoneId })}>
+                <span className={`urgency-dot urgency-dot--${urgency(zone.cutoff_time)}`} />
+                <strong>{zone.zone_id}</strong>
+                <span>{zone.evacuation_priority_score.toFixed(0)} priority</span>
+              </button>
+            </li>
+          );
+        })}
       </ol>
-    </div>
+    </section>
   );
+}
+
+function urgency(cutoff?: number | null) {
+  if (cutoff === null || cutoff === undefined || cutoff < 5) {
+    return "critical";
+  }
+  if (cutoff < 15) {
+    return "warning";
+  }
+  if (cutoff < 30) {
+    return "notice";
+  }
+  return "safe";
 }

@@ -15,6 +15,7 @@ from backend.data.ingest.scenarios import generate_scenarios
 from backend.data.ingest.shelters import fetch_shelters
 from backend.data.ingest.zones import fetch_zones
 from backend.data.loader import SeedDataLoader
+from backend.data.road_fetcher import RoadGraphFetchError
 
 PARADISE = (39.8103, -121.4377)
 BBOX = (-121.4827, 39.7653, -121.3927, 39.8553)  # rough 5 km bbox
@@ -68,11 +69,42 @@ def test_fuel_grid_fallback(tmp_path):
 
 def test_road_network_raises_on_failure(tmp_path):
     out = tmp_path / "road_graph.json"
-    mock_client = MagicMock()
-    mock_client.query.side_effect = IngestError("overpass down")
 
-    with pytest.raises(IngestError):
-        fetch_road_network(BBOX, out, overpass_client=mock_client)
+    with (
+        patch(
+            "backend.data.ingest.roads.fetch_road_graph",
+            side_effect=RoadGraphFetchError("osmnx down"),
+        ),
+        pytest.raises(IngestError),
+    ):
+        fetch_road_network(BBOX, out)
+
+
+def test_road_network_writes_osmnx_graph(tmp_path):
+    out = tmp_path / "road_graph.json"
+    graph_data = {
+        "directed": True,
+        "multigraph": False,
+        "graph": {},
+        "nodes": [
+            {"id": 1, "lat": 39.8, "lon": -121.4},
+            {"id": 2, "lat": 39.81, "lon": -121.41},
+        ],
+        "links": [
+            {"source": 1, "target": 2, "travel_time": 1.5, "capacity": 800},
+        ],
+    }
+
+    with patch("backend.data.ingest.roads.fetch_road_graph", return_value=graph_data) as mock_fetch:
+        fetch_road_network(BBOX, out)
+
+    mock_fetch.assert_called_once_with(
+        min_lat=BBOX[1],
+        min_lon=BBOX[0],
+        max_lat=BBOX[3],
+        max_lon=BBOX[2],
+    )
+    assert json.loads(out.read_text()) == graph_data
 
 
 def test_shelters_raises_on_failure(tmp_path):
@@ -126,8 +158,8 @@ def test_perimeters_no_features(tmp_path):
     assert result is False
 
 
-def test_generate_seed_data_fails_without_overpass(tmp_path):
-    """When Overpass is down, roads/shelters raise IngestError and the pipeline fails."""
+def test_generate_seed_data_fails_without_road_graph(tmp_path):
+    """When the road graph package cannot return roads, the pipeline fails."""
     mock_nominatim = _mock_nominatim()
     mock_empty = MagicMock()
     mock_empty.raise_for_status = MagicMock()
@@ -143,7 +175,7 @@ def test_generate_seed_data_fails_without_overpass(tmp_path):
         patch("backend.data.ingest.zones.requests.get", side_effect=Exception("no network")),
         patch("backend.data.ingest.perimeters.requests.get", return_value=mock_empty),
         patch("backend.data.ingest.fuel._RASTERIO", False),
-        patch("backend.data.ingest.overpass.OverpassClient.query", side_effect=IngestError("down")),
+        patch("backend.data.ingest.roads.fetch_road_graph", side_effect=RoadGraphFetchError("down")),
     ):
         with pytest.raises(IngestError):
             generate_seed_data(*PARADISE, radius_km=5, cell_size_m=500)

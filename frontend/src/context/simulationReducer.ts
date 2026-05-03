@@ -1,29 +1,16 @@
-/**
- * Simulation State Reducer
- *
- * Pure reducer function for managing simulation state with discriminated union actions.
- * Follows React useReducer patterns with exhaustive switch handling.
- */
+import { defaultWind, paradiseCenter } from "../services/mockData";
+import type {
+  ScenarioPreset,
+  SimulationProgress,
+  SimulationResponse,
+  WindConditions,
+} from "../types/api";
 
-import type { SimulationResults, WindData } from '../types/api';
+export type WindMode = "live" | "manual";
+export type RunStatus = "idle" | "loading" | "running" | "complete" | "error";
+export type PanelSide = "controls" | "results";
 
-// ============================================================================
-// Wind Parameters Type
-// ============================================================================
-
-export interface WindParameters {
-  speed: number;
-  direction: number;
-  gust: number;
-  humidity: number;
-  source: 'nws' | 'fallback' | 'manual';
-}
-
-// ============================================================================
-// Visible Layers Type
-// ============================================================================
-
-export interface VisibleLayers {
+export interface LayerState {
   burnHeatmap: boolean;
   routes: boolean;
   zones: boolean;
@@ -32,163 +19,231 @@ export interface VisibleLayers {
   perimeter: boolean;
 }
 
-// ============================================================================
-// Simulation State Interface
-// ============================================================================
-
-export interface SimulationState {
-  ignitionPoint: { lat: number; lon: number } | null;
-  windParams: WindParameters;
-  monteCarloRuns: number;
-  selectedScenario: string | null;
-  jobId: string | null;
-  jobStatus: 'idle' | 'running' | 'complete' | 'error';
-  progress: { completed: number; total: number } | null;
-  currentResults: SimulationResults | null;
-  previousResults: SimulationResults | null;
-  selectedZoneId: string | null;
-  selectedRegion: string | null;
-  animationTimestep: number;
-  isAnimating: boolean;
-  terrainExaggeration: number;
-  visibleLayers: VisibleLayers;
-  error: string | null;
+export interface AnimationState {
+  playing: boolean;
+  timestep: number;
+  speed: number;
 }
 
-// ============================================================================
-// Action Types (Discriminated Union)
-// ============================================================================
+export interface SimulationState {
+  scenarios: ScenarioPreset[];
+  selectedScenarioName: string;
+  ignition: {
+    lat: number;
+    lon: number;
+  };
+  selectIgnitionMode: boolean;
+  wind: WindConditions;
+  windMode: WindMode;
+  numRuns: number;
+  maxTimesteps: number;
+  status: RunStatus;
+  progress: SimulationProgress | null;
+  result: SimulationResponse | null;
+  previousResult: SimulationResponse | null;
+  selectedZoneId: string | null;
+  selectedRouteId: string | null;
+  fieldErrors: Record<string, string>;
+  apiError: string | null;
+  layers: LayerState;
+  burnOpacity: number;
+  terrainExaggeration: number;
+  demoMode: boolean;
+  modifiedWind: boolean;
+  panels: {
+    controls: boolean;
+    results: boolean;
+  };
+  animation: AnimationState;
+}
 
 export type SimulationAction =
-  | { type: 'SET_IGNITION'; payload: { lat: number; lon: number } | null }
-  | { type: 'SET_REGION'; payload: string | null }
-  | { type: 'SET_WIND'; payload: Partial<WindParameters> }
-  | { type: 'SET_SCENARIO'; payload: string | null }
-  | { type: 'SET_MC_RUNS'; payload: number }
-  | { type: 'SUBMIT_SIMULATION' }
-  | { type: 'UPDATE_PROGRESS'; payload: { completed: number; total: number } }
-  | { type: 'SET_RESULTS'; payload: SimulationResults }
-  | { type: 'SET_ERROR'; payload: string | null }
-  | { type: 'SELECT_ZONE'; payload: string | null }
-  | { type: 'SET_ANIMATION_TIMESTEP'; payload: number }
-  | { type: 'TOGGLE_ANIMATION' }
-  | { type: 'TOGGLE_LAYER'; payload: keyof VisibleLayers }
-  | { type: 'SET_TERRAIN_EXAGGERATION'; payload: number }
-  | { type: 'STORE_PREVIOUS_RESULTS' }
-  | { type: 'RESET_SIMULATION' };
+  | { type: "scenariosLoaded"; scenarios: ScenarioPreset[] }
+  | { type: "scenarioSelected"; scenario: ScenarioPreset }
+  | { type: "ignitionSet"; lat: number; lon: number }
+  | { type: "selectIgnitionModeSet"; enabled: boolean }
+  | { type: "windModeSet"; mode: WindMode }
+  | { type: "windSet"; wind: WindConditions; modified?: boolean }
+  | { type: "windFieldSet"; field: keyof WindConditions; value: number }
+  | { type: "numRunsSet"; value: number }
+  | { type: "runStarted"; previousResult?: SimulationResponse | null }
+  | { type: "runProgressed"; progress: SimulationProgress }
+  | { type: "runCompleted"; result: SimulationResponse; modifiedWind?: boolean }
+  | { type: "runFailed"; message: string }
+  | { type: "fieldErrorsSet"; errors: Record<string, string> }
+  | { type: "layerSet"; layer: keyof LayerState; value: boolean }
+  | { type: "burnOpacitySet"; value: number }
+  | { type: "terrainExaggerationSet"; value: number }
+  | { type: "zoneSelected"; zoneId: string | null }
+  | { type: "routeSelected"; routeId: string | null; zoneId?: string }
+  | { type: "demoModeSet"; enabled: boolean }
+  | { type: "panelSet"; panel: PanelSide; open: boolean }
+  | { type: "animationSet"; animation: Partial<AnimationState> };
 
-// ============================================================================
-// Initial State
-// ============================================================================
-
-export const DEFAULT_WIND_PARAMS: WindParameters = {
-  speed: 14,
-  direction: 225,
-  gust: 22,
-  humidity: 18,
-  source: 'fallback',
-};
-
-export const DEFAULT_VISIBLE_LAYERS: VisibleLayers = {
-  burnHeatmap: true,
-  routes: true,
-  zones: true,
-  elevation: true,
-  shelters: true,
-  perimeter: true,
-};
-
-export const INITIAL_STATE: SimulationState = {
-  ignitionPoint: null,
-  windParams: DEFAULT_WIND_PARAMS,
-  monteCarloRuns: 500,
-  selectedScenario: null,
-  jobId: null,
-  jobStatus: 'idle',
+export const initialSimulationState: SimulationState = {
+  scenarios: [],
+  selectedScenarioName: "Custom scenario",
+  ignition: paradiseCenter,
+  selectIgnitionMode: false,
+  wind: defaultWind,
+  windMode: "manual",
+  numRuns: 500,
+  maxTimesteps: 180,
+  status: "idle",
   progress: null,
-  currentResults: null,
-  previousResults: null,
+  result: null,
+  previousResult: null,
   selectedZoneId: null,
-  selectedRegion: null,
-  animationTimestep: 0,
-  isAnimating: false,
-  terrainExaggeration: 1.0,
-  visibleLayers: DEFAULT_VISIBLE_LAYERS,
-  error: null,
+  selectedRouteId: null,
+  fieldErrors: {},
+  apiError: null,
+  layers: {
+    burnHeatmap: true,
+    routes: true,
+    zones: true,
+    elevation: true,
+    shelters: true,
+    perimeter: true,
+  },
+  burnOpacity: 0.62,
+  terrainExaggeration: 1.6,
+  demoMode: false,
+  modifiedWind: false,
+  panels: {
+    controls: true,
+    results: true,
+  },
+  animation: {
+    playing: false,
+    timestep: 0,
+    speed: 1,
+  },
 };
-
-// ============================================================================
-// Reducer Function
-// ============================================================================
 
 export function simulationReducer(
   state: SimulationState,
-  action: SimulationAction
+  action: SimulationAction,
 ): SimulationState {
   switch (action.type) {
-    case 'SET_IGNITION':
-      return { ...state, ignitionPoint: action.payload, error: null };
-
-    case 'SET_REGION':
-      return { ...state, selectedRegion: action.payload, ignitionPoint: null, error: null };
-
-    case 'SET_WIND':
-      return { ...state, windParams: { ...state.windParams, ...action.payload }, error: null };
-
-    case 'SET_SCENARIO':
-      return { ...state, selectedScenario: action.payload, error: null };
-
-    case 'SET_MC_RUNS':
-      return { ...state, monteCarloRuns: Math.max(50, Math.min(1000, action.payload)), error: null };
-
-    case 'SUBMIT_SIMULATION':
-      return { ...state, jobStatus: 'running', progress: { completed: 0, total: state.monteCarloRuns }, error: null };
-
-    case 'UPDATE_PROGRESS':
-      return { ...state, progress: action.payload };
-
-    case 'SET_RESULTS':
-      return { ...state, jobStatus: 'complete', currentResults: action.payload, progress: null, animationTimestep: 0, isAnimating: false };
-
-    case 'SET_ERROR':
-      return { ...state, jobStatus: action.payload ? 'error' : state.jobStatus, error: action.payload, progress: null };
-
-    case 'SELECT_ZONE':
-      return { ...state, selectedZoneId: action.payload };
-
-    case 'SET_ANIMATION_TIMESTEP':
-      return { ...state, animationTimestep: Math.max(0, action.payload) };
-
-    case 'TOGGLE_ANIMATION':
-      return { ...state, isAnimating: !state.isAnimating };
-
-    case 'TOGGLE_LAYER':
-      return { ...state, visibleLayers: { ...state.visibleLayers, [action.payload]: !state.visibleLayers[action.payload] } };
-
-    case 'SET_TERRAIN_EXAGGERATION':
-      return { ...state, terrainExaggeration: Math.max(1.0, Math.min(3.0, action.payload)) };
-
-    case 'STORE_PREVIOUS_RESULTS':
-      return { ...state, previousResults: state.currentResults };
-
-    case 'RESET_SIMULATION':
-      return { ...INITIAL_STATE, visibleLayers: state.visibleLayers, terrainExaggeration: state.terrainExaggeration };
-
+    case "scenariosLoaded":
+      return { ...state, scenarios: action.scenarios };
+    case "scenarioSelected":
+      return {
+        ...state,
+        selectedScenarioName: action.scenario.name,
+        ignition: {
+          lat: action.scenario.ignition_lat,
+          lon: action.scenario.ignition_lon,
+        },
+        wind: {
+          wind_speed_mph: action.scenario.wind_speed_mph,
+          wind_direction_deg: action.scenario.wind_direction_deg,
+          wind_gust_mph: action.scenario.wind_gust_mph,
+          relative_humidity: action.scenario.relative_humidity,
+        },
+        modifiedWind: false,
+        fieldErrors: {},
+      };
+    case "ignitionSet":
+      return {
+        ...state,
+        ignition: { lat: action.lat, lon: action.lon },
+        selectIgnitionMode: false,
+        fieldErrors: clearFields(state.fieldErrors, ["ignition_lat", "ignition_lon"]),
+      };
+    case "selectIgnitionModeSet":
+      return { ...state, selectIgnitionMode: action.enabled };
+    case "windModeSet":
+      return { ...state, windMode: action.mode };
+    case "windSet":
+      return {
+        ...state,
+        wind: action.wind,
+        modifiedWind: action.modified ?? state.modifiedWind,
+        fieldErrors: clearFields(state.fieldErrors, [
+          "wind_speed_mph",
+          "wind_direction_deg",
+          "wind_gust_mph",
+          "relative_humidity",
+        ]),
+      };
+    case "windFieldSet":
+      return {
+        ...state,
+        wind: { ...state.wind, [action.field]: action.value },
+        modifiedWind: true,
+        fieldErrors: clearFields(state.fieldErrors, [action.field]),
+      };
+    case "numRunsSet":
+      return {
+        ...state,
+        numRuns: action.value,
+        fieldErrors: clearFields(state.fieldErrors, ["num_runs"]),
+      };
+    case "runStarted":
+      return {
+        ...state,
+        status: "running",
+        progress: {
+          completedRuns: 0,
+          totalRuns: state.numRuns,
+          elapsedSec: 0,
+          etaSec: 0,
+          phase: "queued",
+        },
+        previousResult: action.previousResult ?? state.previousResult,
+        apiError: null,
+        fieldErrors: {},
+      };
+    case "runProgressed":
+      return { ...state, status: "running", progress: action.progress };
+    case "runCompleted":
+      return {
+        ...state,
+        status: "complete",
+        progress: null,
+        result: action.result,
+        selectedZoneId: action.result.zone_results[0]?.zone_id ?? null,
+        selectedRouteId: action.result.zone_results[0]?.optimized_route?.route_id ?? null,
+        modifiedWind: action.modifiedWind ?? state.modifiedWind,
+      };
+    case "runFailed":
+      return { ...state, status: "error", apiError: action.message, progress: null };
+    case "fieldErrorsSet":
+      return { ...state, fieldErrors: action.errors, status: "error" };
+    case "layerSet":
+      return { ...state, layers: { ...state.layers, [action.layer]: action.value } };
+    case "burnOpacitySet":
+      return { ...state, burnOpacity: action.value };
+    case "terrainExaggerationSet":
+      return { ...state, terrainExaggeration: action.value };
+    case "zoneSelected":
+      return { ...state, selectedZoneId: action.zoneId };
+    case "routeSelected":
+      return {
+        ...state,
+        selectedRouteId: action.routeId,
+        selectedZoneId: action.zoneId ?? state.selectedZoneId,
+      };
+    case "demoModeSet":
+      return {
+        ...state,
+        demoMode: action.enabled,
+        selectedScenarioName: action.enabled ? "Camp Fire Fast Wind Shift" : state.selectedScenarioName,
+      };
+    case "panelSet":
+      return { ...state, panels: { ...state.panels, [action.panel]: action.open } };
+    case "animationSet":
+      return { ...state, animation: { ...state.animation, ...action.animation } };
     default:
-      return action satisfies never;
+      return state;
   }
 }
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-export function windDataToParams(windData: WindData): WindParameters {
-  return {
-    speed: windData.wind_speed,
-    direction: windData.wind_direction,
-    gust: windData.wind_gust,
-    humidity: windData.relative_humidity,
-    source: windData.source,
-  };
+function clearFields(errors: Record<string, string>, fields: string[]) {
+  const next = { ...errors };
+  for (const field of fields) {
+    delete next[field];
+  }
+  return next;
 }

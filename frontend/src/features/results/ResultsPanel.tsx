@@ -1,144 +1,143 @@
-/**
- * ResultsPanel — right sidebar displaying simulation results
- */
+import { MetricCard } from "../../components/MetricCard";
+import { useSimulationState } from "../../context/useSimulationState";
+import { useSimulation } from "../../hooks/useSimulation";
+import type { SimulationResponse } from "../../types/api";
+import { ComparisonView } from "./ComparisonView";
+import { EvacuationOrdering } from "./EvacuationOrdering";
+import { RouteCard } from "./RouteCard";
+import { ZoneEvacuationTable } from "./ZoneEvacuationTable";
 
-import { cn } from '@/lib/cn';
-import { useSimulation } from '@/hooks/useSimulation';
-import { MetricCard } from '@/components/MetricCard';
-import { ComparisonView } from './ComparisonView';
-import { ZoneEvacuationTable } from './ZoneEvacuationTable';
-import { EvacuationOrdering } from './EvacuationOrdering';
-import { SummaryStatistics } from './SummaryStatistics';
-import { RouteCard } from './RouteCard';
-
-export interface ResultsPanelProps {
-  isOpen: boolean;
-  onClose: () => void;
-}
-
-export function ResultsPanel({ isOpen, onClose }: ResultsPanelProps): React.ReactElement {
-  return (
-    <>
-      {/* Desktop */}
-      <aside className={cn('w-96 shrink-0 bg-surface-raised border-l border-surface-border', 'overflow-y-auto p-4 space-y-4', 'hidden lg:flex lg:flex-col')}>
-        <ResultsPanelContent />
-      </aside>
-
-      {/* Mobile drawer */}
-      <div className={cn('lg:hidden fixed inset-y-0 right-0 z-20 w-96 max-w-full', 'bg-surface-raised border-l border-surface-border', 'overflow-y-auto p-4 space-y-4', 'transform transition-transform duration-300 ease-in-out', isOpen ? 'translate-x-0' : 'translate-x-full')}>
-        <div className="flex justify-start mb-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className={cn('p-2 rounded-md text-gray-400 hover:text-gray-200', 'hover:bg-surface-hover transition-colors', 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary')}
-            aria-label="Close results panel"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-        <ResultsPanelContent />
-      </div>
-    </>
-  );
-}
-
-function ResultsPanelContent(): React.ReactElement {
-  const { state, selectZone, selectedZoneRoutes } = useSimulation();
-  const { currentResults, selectedZoneId, jobStatus, error } = state;
-
-  if (jobStatus === 'error' && error) {
-    return (
-      <div className="space-y-4">
-        <h2 className="text-xs uppercase tracking-wider text-gray-500 font-semibold">Simulation Results</h2>
-        <div className="bg-accent-error/10 border border-accent-error/30 rounded-lg p-4" role="alert">
-          <div className="text-sm font-medium text-accent-error mb-1">Simulation Failed</div>
-          <p className="text-xs text-gray-400">{error}</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!currentResults) {
-    return (
-      <div className="space-y-4">
-        <h2 className="text-xs uppercase tracking-wider text-gray-500 font-semibold">Simulation Results</h2>
-        <div className="bg-surface-overlay border border-surface-border rounded-lg p-6 text-center">
-          <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-surface-base border border-surface-border flex items-center justify-center">
-            <svg className="w-6 h-6 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-            </svg>
-          </div>
-          <p className="text-gray-400 text-sm">No results yet</p>
-          <p className="text-gray-500 text-xs mt-1">Run a simulation to see results</p>
-        </div>
-      </div>
-    );
-  }
-
-  const { routes, zones, evacuation_ordering } = currentResults;
-
-  const drawableRoutes = routes.filter((r) => r.segments.length >= 2);
-  const hasNoRoutes = routes.length === 0;
-  const hasNoDrawableRoutes = drawableRoutes.length === 0 && routes.length > 0;
-
-  const bestRoute = routes
-    .filter((r) => r.strategy === 'optimized')
-    .sort((a, b) => b.viability_score - a.viability_score)[0];
+export function ResultsPanel() {
+  const { state, dispatch } = useSimulationState();
+  const { runSimulation } = useSimulation();
+  const result = state.result;
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-xs uppercase tracking-wider text-gray-500 font-semibold">Simulation Results</h2>
-
-      {bestRoute && (
-        <MetricCard
-          label={`Route ${bestRoute.route_id} survives in`}
-          value={bestRoute.viability_score}
-          unit="% of scenarios"
-          color="text-route-safe"
-          size="lg"
-        />
-      )}
-
-      <SummaryStatistics results={currentResults} />
-
-      {hasNoRoutes && (
-        <div className="bg-accent-error/10 border border-accent-error/30 rounded-lg p-3 text-xs text-accent-error" role="alert">
-          No evacuation routes were computed. The road network may be missing or disconnected from shelter locations.
-        </div>
-      )}
-      {hasNoDrawableRoutes && (
-        <div className="bg-accent-warning/10 border border-accent-warning/30 rounded-lg p-3 text-xs text-accent-warning" role="alert">
-          Routes exist but are too short to display on the map (zones are at shelter locations).
-        </div>
-      )}
-
-      {/* Baseline vs Optimized comparison */}
-      <ComparisonView results={currentResults} />
-
-      {selectedZoneId && selectedZoneRoutes.length > 0 && (
+    <aside className={`panel results-panel ${state.panels.results ? "is-open" : ""}`}>
+      <div className="panel__header">
         <div>
-          <div className="text-xs uppercase tracking-wider text-gray-500 mb-2">Routes for {selectedZoneId}</div>
-          <div className="space-y-2">
-            {selectedZoneRoutes.map((route) => (
-              <RouteCard
-                key={route.route_id}
-                route={route}
-                onShowOnMap={() => selectZone(route.zone_id)}
-              />
-            ))}
-          </div>
+          <span className="eyebrow">Results Panel</span>
+          <h2>Route Intelligence</h2>
         </div>
+        <button
+          className="icon-button panel__close"
+          type="button"
+          aria-label="Close results"
+          onClick={() => dispatch({ type: "panelSet", panel: "results", open: false })}
+        >
+          x
+        </button>
+      </div>
+
+      {!result ? (
+        <div className="empty-results">
+          <MetricCard
+            label="Awaiting Simulation"
+            value="Ready"
+            tone="info"
+            detail="Configure ignition, wind, and runs to populate route comparison."
+          />
+        </div>
+      ) : (
+        <>
+          <MetricCard
+            label="Key Demo Metric"
+            value={keyRouteMetric(result)}
+            tone="info"
+            detail={`Route ${bestRouteName(result)} survives across sampled scenarios`}
+            large
+          />
+
+          <ComparisonView result={result} previousResult={state.previousResult} />
+
+          <section className="summary-grid" aria-label="Summary statistics">
+            <MetricCard
+              label="Population At Risk"
+              value={totalPopulation(result).toLocaleString()}
+              tone="warning"
+            />
+            <MetricCard
+              label="Cutoff Below 10m"
+              value={zonesUnderCutoff(result, 10)}
+              unit="zones"
+              tone="critical"
+            />
+            <MetricCard
+              label="Optimization Lift"
+              value={optimizationLift(result).toFixed(1)}
+              unit="%"
+              tone="success"
+            />
+            <MetricCard
+              label="MC Confidence"
+              value="90"
+              unit="% CI"
+              tone="default"
+            />
+          </section>
+
+          <div className="results-actions">
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={state.status === "running"}
+              onClick={() => void runSimulation({ quickCompare: true })}
+            >
+              Quick Compare +45 deg
+            </button>
+          </div>
+
+          <ZoneEvacuationTable zones={result.zone_results} />
+
+          <section className="results-section">
+            <div className="section-title">
+              <h3>Per-Zone Routes</h3>
+              <span>best paths</span>
+            </div>
+            <div className="route-card-list">
+              {result.zone_results.map((zone) => (
+                <RouteCard key={zone.zone_id} zone={zone} />
+              ))}
+            </div>
+          </section>
+
+          <EvacuationOrdering zones={result.zone_results} ordering={result.evacuation_ordering} />
+        </>
       )}
-
-      <ZoneEvacuationTable
-        zones={zones.features}
-        selectedZoneId={selectedZoneId}
-        onSelectZone={selectZone}
-      />
-
-      <EvacuationOrdering ordering={evacuation_ordering} />
-    </div>
+    </aside>
   );
+}
+
+function bestRouteName(result: SimulationResponse) {
+  return bestOptimizedRoute(result)?.route_id ?? "optimized";
+}
+
+function keyRouteMetric(result: SimulationResponse) {
+  const route = bestOptimizedRoute(result);
+  return `${(route?.viability_score ?? 0).toFixed(0)}%`;
+}
+
+function bestOptimizedRoute(result: SimulationResponse) {
+  return result.zone_results
+    .map((zone) => zone.optimized_route)
+    .filter((route) => route !== null && route !== undefined)
+    .sort((a, b) => (b.viability_score ?? 0) - (a.viability_score ?? 0))[0];
+}
+
+function totalPopulation(result: SimulationResponse) {
+  return result.zone_results.reduce((sum, zone) => sum + zone.population, 0);
+}
+
+function zonesUnderCutoff(result: SimulationResponse, cutoff: number) {
+  return result.zone_results.filter((zone) => (zone.cutoff_time ?? Infinity) < cutoff).length;
+}
+
+function optimizationLift(result: SimulationResponse) {
+  const baseline = average(result.zone_results.map((zone) => zone.baseline_route.viability_score ?? 0));
+  const optimized = average(result.zone_results.map((zone) => zone.optimized_route?.viability_score ?? 0));
+  return optimized - baseline;
+}
+
+function average(values: number[]) {
+  return values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
 }

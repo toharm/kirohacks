@@ -1,247 +1,142 @@
-/**
- * useSimulation Hook
- *
- * Custom hook for consuming simulation context with typed dispatch helpers
- * and memoized selectors for derived state.
- */
-
-import { useContext, useCallback, useMemo } from 'react';
-
-import {
-  SimulationStateContext,
-  SimulationDispatchContext,
-  windDataToParams,
-  type SimulationState,
-  type SimulationAction,
-  type WindParameters,
-  type VisibleLayers,
-} from '../context/SimulationContext';
-
-import type { SimulationResults, WindData, ScenarioPreset } from '../types/api';
-
-// ============================================================================
-// Context Hooks
-// ============================================================================
-
-export function useSimulationState(): SimulationState {
-  const state = useContext(SimulationStateContext);
-  if (state === null) {
-    throw new Error('useSimulationState must be used within a SimulationProvider');
-  }
-  return state;
-}
-
-export function useSimulationDispatch(): React.Dispatch<SimulationAction> {
-  const dispatch = useContext(SimulationDispatchContext);
-  if (dispatch === null) {
-    throw new Error('useSimulationDispatch must be used within a SimulationProvider');
-  }
-  return dispatch;
-}
-
-// ============================================================================
-// Main Hook
-// ============================================================================
+import { apiClient, ApiRequestError, ApiValidationError } from "../services/api";
+import { useSimulationState } from "../context/useSimulationState";
+import { useToasts } from "../context/useToasts";
+import type { SimulationRequest, WindConditions } from "../types/api";
 
 export function useSimulation() {
-  const state = useSimulationState();
-  const dispatch = useSimulationDispatch();
+  const { state, dispatch } = useSimulationState();
+  const { pushToast } = useToasts();
 
-  const setIgnition = useCallback(
-    (point: { lat: number; lon: number } | null) => {
-      dispatch({ type: 'SET_IGNITION', payload: point });
-    },
-    [dispatch]
-  );
+  async function fetchLiveWind() {
+    dispatch({ type: "windModeSet", mode: "live" });
 
-  const setRegion = useCallback(
-    (region: string | null) => {
-      dispatch({ type: 'SET_REGION', payload: region });
-    },
-    [dispatch]
-  );
-
-  const setWind = useCallback(
-    (params: Partial<WindParameters>) => {
-      dispatch({ type: 'SET_WIND', payload: params });
-    },
-    [dispatch]
-  );
-
-  const setWindFromData = useCallback(
-    (windData: WindData) => {
-      dispatch({ type: 'SET_WIND', payload: windDataToParams(windData) });
-    },
-    [dispatch]
-  );
-
-  const setScenario = useCallback(
-    (scenarioName: string | null) => {
-      dispatch({ type: 'SET_SCENARIO', payload: scenarioName });
-    },
-    [dispatch]
-  );
-
-  const applyScenario = useCallback(
-    (scenario: ScenarioPreset) => {
-      dispatch({ type: 'SET_SCENARIO', payload: scenario.name });
-      dispatch({ type: 'SET_IGNITION', payload: scenario.ignition_point });
-      dispatch({
-        type: 'SET_WIND',
-        payload: {
-          speed: scenario.wind_speed,
-          direction: scenario.wind_direction,
-          gust: scenario.wind_gust,
-          humidity: scenario.relative_humidity,
-          source: 'manual',
-        },
+    try {
+      const response = await apiClient.fetchWind(state.ignition.lat, state.ignition.lon);
+      dispatch({ type: "windSet", wind: response.conditions, modified: false });
+      pushToast({
+        tone: response.source === "fallback" ? "warning" : "success",
+        title: response.source === "fallback" ? "Fallback wind loaded" : "Live wind loaded",
+        message: response.forecast_text ?? "Wind fields updated from the API.",
       });
-    },
-    [dispatch]
-  );
+    } catch (error) {
+      pushToast({
+        tone: "critical",
+        title: "Wind fetch failed",
+        message: error instanceof Error ? error.message : "Unable to fetch live wind.",
+      });
+    }
+  }
 
-  const setMonteCarloRuns = useCallback(
-    (runs: number) => {
-      dispatch({ type: 'SET_MC_RUNS', payload: runs });
-    },
-    [dispatch]
-  );
+  async function runSimulation(options: { quickCompare?: boolean } = {}) {
+    const wind = options.quickCompare ? shiftedWind(state.wind) : state.wind;
+    const request = buildRequest(state, wind);
+    const errors = validateRequest(request);
 
-  const startSimulation = useCallback(() => {
-    dispatch({ type: 'SUBMIT_SIMULATION' });
-  }, [dispatch]);
+    if (Object.keys(errors).length > 0) {
+      dispatch({ type: "fieldErrorsSet", errors });
+      pushToast({
+        tone: "warning",
+        title: "Check simulation inputs",
+        message: "One or more values are outside the accepted range.",
+      });
+      return;
+    }
 
-  const updateProgress = useCallback(
-    (completed: number, total: number) => {
-      dispatch({ type: 'UPDATE_PROGRESS', payload: { completed, total } });
-    },
-    [dispatch]
-  );
+    if (options.quickCompare) {
+      dispatch({ type: "windSet", wind, modified: true });
+    }
 
-  const setResults = useCallback(
-    (results: SimulationResults) => {
-      dispatch({ type: 'SET_RESULTS', payload: results });
-    },
-    [dispatch]
-  );
+    dispatch({ type: "runStarted", previousResult: options.quickCompare ? state.result : null });
 
-  const setError = useCallback(
-    (error: string | null) => {
-      dispatch({ type: 'SET_ERROR', payload: error });
-    },
-    [dispatch]
-  );
+    try {
+      const result = await apiClient.runSimulation(request, (progress) => {
+        dispatch({ type: "runProgressed", progress });
+      });
 
-  const selectZone = useCallback(
-    (zoneId: string | null) => {
-      dispatch({ type: 'SELECT_ZONE', payload: zoneId });
-    },
-    [dispatch]
-  );
+      dispatch({
+        type: "runCompleted",
+        result,
+        modifiedWind: state.modifiedWind || options.quickCompare === true,
+      });
+      pushToast({
+        tone: "success",
+        title: "Simulation complete",
+        message: `${result.summary.runs_completed} Monte Carlo runs aggregated.`,
+      });
+    } catch (error) {
+      if (error instanceof ApiValidationError) {
+        const fieldErrors = Object.fromEntries(
+          error.issues.map((issue) => [issue.field, issue.message]),
+        );
+        dispatch({ type: "fieldErrorsSet", errors: fieldErrors });
+        pushToast({
+          tone: "warning",
+          title: "Backend validation failed",
+          message: "The API rejected one or more fields.",
+        });
+        return;
+      }
 
-  const setAnimationTimestep = useCallback(
-    (timestep: number) => {
-      dispatch({ type: 'SET_ANIMATION_TIMESTEP', payload: timestep });
-    },
-    [dispatch]
-  );
+      const message = error instanceof ApiRequestError || error instanceof Error
+        ? error.message
+        : "Simulation request failed.";
+      dispatch({ type: "runFailed", message });
+      pushToast({ tone: "critical", title: "Simulation failed", message });
+    }
+  }
 
-  const toggleAnimation = useCallback(() => {
-    dispatch({ type: 'TOGGLE_ANIMATION' });
-  }, [dispatch]);
+  return { fetchLiveWind, runSimulation };
+}
 
-  const toggleLayer = useCallback(
-    (layer: keyof VisibleLayers) => {
-      dispatch({ type: 'TOGGLE_LAYER', payload: layer });
-    },
-    [dispatch]
-  );
-
-  const setTerrainExaggeration = useCallback(
-    (exaggeration: number) => {
-      dispatch({ type: 'SET_TERRAIN_EXAGGERATION', payload: exaggeration });
-    },
-    [dispatch]
-  );
-
-  const storePreviousResults = useCallback(() => {
-    dispatch({ type: 'STORE_PREVIOUS_RESULTS' });
-  }, [dispatch]);
-
-  const resetSimulation = useCallback(() => {
-    dispatch({ type: 'RESET_SIMULATION' });
-  }, [dispatch]);
-
-  // -------------------------------------------------------------------------
-  // Selectors
-  // -------------------------------------------------------------------------
-
-  const canRunSimulation = useMemo(() => {
-    return state.ignitionPoint !== null && state.jobStatus !== 'running';
-  }, [state.ignitionPoint, state.jobStatus]);
-
-  const isSimulating = useMemo(() => {
-    return state.jobStatus === 'running';
-  }, [state.jobStatus]);
-
-  const hasResults = useMemo(() => state.currentResults !== null, [state.currentResults]);
-
-  const hasComparison = useMemo(() => {
-    return state.currentResults !== null && state.previousResults !== null;
-  }, [state.currentResults, state.previousResults]);
-
-  const progressPercentage = useMemo(() => {
-    if (!state.progress) return 0;
-    return Math.round((state.progress.completed / state.progress.total) * 100);
-  }, [state.progress]);
-
-  const selectedZone = useMemo(() => {
-    if (!state.selectedZoneId || !state.currentResults) return null;
-    return state.currentResults.zones.features.find(
-      (zone) => zone.properties.zone_id === state.selectedZoneId
-    ) ?? null;
-  }, [state.selectedZoneId, state.currentResults]);
-
-  const selectedZoneRoutes = useMemo(() => {
-    if (!state.selectedZoneId || !state.currentResults) return [];
-    return state.currentResults.routes.filter(
-      (route) => route.zone_id === state.selectedZoneId
-    );
-  }, [state.selectedZoneId, state.currentResults]);
-
+function buildRequest(
+  state: ReturnType<typeof useSimulationState>["state"],
+  wind: WindConditions,
+): SimulationRequest {
   return {
-    state,
-    dispatch,
-
-    // Dispatch helpers
-    setIgnition,
-    setRegion,
-    setWind,
-    setWindFromData,
-    setScenario,
-    applyScenario,
-    setMonteCarloRuns,
-    startSimulation,
-    updateProgress,
-    setResults,
-    setError,
-    selectZone,
-    setAnimationTimestep,
-    toggleAnimation,
-    toggleLayer,
-    setTerrainExaggeration,
-    storePreviousResults,
-    resetSimulation,
-
-    // Selectors
-    canRunSimulation,
-    isSimulating,
-    hasResults,
-    hasComparison,
-    progressPercentage,
-    selectedZone,
-    selectedZoneRoutes,
+    ignition_lat: state.ignition.lat,
+    ignition_lon: state.ignition.lon,
+    wind_speed_mph: wind.wind_speed_mph,
+    wind_direction_deg: wind.wind_direction_deg,
+    wind_gust_mph: wind.wind_gust_mph,
+    relative_humidity: wind.relative_humidity,
+    num_runs: state.numRuns,
+    max_timesteps: state.maxTimesteps,
+    scenario_preset: state.selectedScenarioName === "Custom scenario" ? null : state.selectedScenarioName,
+    region: "paradise-ca",
   };
 }
 
-export type UseSimulationReturn = ReturnType<typeof useSimulation>;
+function validateRequest(request: SimulationRequest) {
+  const errors: Record<string, string> = {};
+
+  if (request.ignition_lat < -90 || request.ignition_lat > 90) {
+    errors.ignition_lat = "Latitude must be between -90 and 90.";
+  }
+  if (request.ignition_lon < -180 || request.ignition_lon > 180) {
+    errors.ignition_lon = "Longitude must be between -180 and 180.";
+  }
+  if (request.wind_speed_mph < 0 || request.wind_speed_mph > 100) {
+    errors.wind_speed_mph = "Wind speed must be 0 to 100 mph.";
+  }
+  if (request.wind_direction_deg < 0 || request.wind_direction_deg >= 360) {
+    errors.wind_direction_deg = "Direction must be 0 to 359 degrees.";
+  }
+  if (request.wind_gust_mph < 0 || request.wind_gust_mph > 150) {
+    errors.wind_gust_mph = "Gust must be 0 to 150 mph.";
+  }
+  if (request.relative_humidity < 0 || request.relative_humidity > 100) {
+    errors.relative_humidity = "Humidity must be 0 to 100%.";
+  }
+  if (request.num_runs < 50 || request.num_runs > 1000) {
+    errors.num_runs = "Monte Carlo runs must be 50 to 1000.";
+  }
+
+  return errors;
+}
+
+function shiftedWind(wind: WindConditions): WindConditions {
+  return {
+    ...wind,
+    wind_direction_deg: (wind.wind_direction_deg + 45) % 360,
+  };
+}

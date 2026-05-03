@@ -7,6 +7,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from backend.data.loader import SeedDataLoader, SeedDataError
+from backend.data.road_fetcher import fetch_road_graph
 from backend.data.wind_client import NWSWindClient
 from backend.models.schemas import (
     SimulationRequest,
@@ -44,6 +45,28 @@ def _region_to_seed_dir(region: str | None) -> str:
 def list_regions():
     """List available region slugs."""
     return [d.name for d in ALLOWED_SEED_BASE.iterdir() if d.is_dir()]
+
+
+@router.get("/road-graph")
+def get_road_graph(
+    min_lat: float = Query(..., ge=-90, le=90),
+    max_lat: float = Query(..., ge=-90, le=90),
+    min_lon: float = Query(..., ge=-180, le=180),
+    max_lon: float = Query(..., ge=-180, le=180),
+):
+    """Fetch real OSM road network for a bounding box.
+
+    Returns node-link JSON matching the road_graph.json schema.
+    """
+    if min_lat >= max_lat or min_lon >= max_lon:
+        raise HTTPException(
+            status_code=400,
+            detail="min_lat must be < max_lat and min_lon must be < max_lon",
+        )
+    try:
+        return fetch_road_graph(min_lat, min_lon, max_lat, max_lon)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"OSM fetch failed: {exc}")
 
 
 @router.post("/simulate", response_model=SimulationResponse)

@@ -1,136 +1,277 @@
-/**
- * ControlPanel Component
- *
- * Left sidebar containing simulation controls.
- * Desktop: Static sidebar, Mobile: Overlay drawer.
- *
- * Coordinates validation state across WindSection, IgnitionSection,
- * and RunButton so that attempting to run with invalid inputs highlights
- * the relevant sections.
- *
- * @see design.md for layout specifications
- * @see requirements.md Requirement 3, AC 8
- */
+import { useSimulationState } from "../../context/useSimulationState";
+import { useSimulation } from "../../hooks/useSimulation";
+import type { WindConditions } from "../../types/api";
 
-import { useState, useCallback } from 'react';
-import { cn } from '@/lib/cn';
-import { IgnitionSection } from './IgnitionSection';
-import { WindSection } from './WindSection';
-import { ScenarioSelector } from './ScenarioSelector';
-import { MonteCarloSlider } from './MonteCarloSlider';
-import { RunButton } from './RunButton';
-import { RegionSelector } from './RegionSelector';
+const windFields: Array<{
+  field: keyof WindConditions;
+  label: string;
+  min: number;
+  max: number;
+  unit: string;
+}> = [
+  { field: "wind_speed_mph", label: "Wind speed", min: 0, max: 100, unit: "mph" },
+  { field: "wind_direction_deg", label: "Direction", min: 0, max: 359, unit: "deg" },
+  { field: "wind_gust_mph", label: "Gust", min: 0, max: 150, unit: "mph" },
+  { field: "relative_humidity", label: "Humidity", min: 0, max: 100, unit: "%" },
+];
 
-export interface ControlPanelProps {
-  /** Whether the mobile drawer is open */
-  isOpen: boolean;
-  /** Callback to close the mobile drawer */
-  onClose: () => void;
-}
+export function ControlPanel() {
+  const { state, dispatch } = useSimulationState();
+  const { fetchLiveWind, runSimulation } = useSimulation();
+  const running = state.status === "running";
+  const manualWind = state.windMode === "manual";
 
-export function ControlPanel({ isOpen, onClose }: ControlPanelProps): React.ReactElement {
   return (
-    <>
-      {/* Desktop: Static sidebar */}
-      <aside
-        className={cn(
-          'w-80 shrink-0 bg-surface-raised border-r border-surface-border',
-          'overflow-y-auto p-4 space-y-4',
-          'hidden lg:flex lg:flex-col'
-        )}
-      >
-        <ControlPanelContent />
-      </aside>
+    <aside className={`panel control-panel ${state.panels.controls ? "is-open" : ""}`}>
+      <div className="panel__header">
+        <div>
+          <span className="eyebrow">Control Panel</span>
+          <h2>Simulation Setup</h2>
+        </div>
+        <button
+          className="icon-button panel__close"
+          type="button"
+          aria-label="Close controls"
+          onClick={() => dispatch({ type: "panelSet", panel: "controls", open: false })}
+        >
+          x
+        </button>
+      </div>
 
-      {/* Mobile: Overlay drawer */}
-      <div
-        className={cn(
-          'lg:hidden fixed inset-y-0 left-0 z-20 w-80',
-          'bg-surface-raised border-r border-surface-border',
-          'overflow-y-auto p-4 space-y-4',
-          'transform transition-transform duration-300 ease-in-out',
-          isOpen ? 'translate-x-0' : '-translate-x-full'
-        )}
-      >
-        {/* Close button for mobile */}
-        <div className="flex justify-end mb-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className={cn(
-              'p-2 rounded-md text-gray-400 hover:text-gray-200',
-              'hover:bg-surface-hover transition-colors',
-              'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary'
-            )}
-            aria-label="Close control panel"
+      {state.demoMode ? (
+        <section className="demo-steps" aria-label="Demo flow">
+          {["Select Ignition", "Fetch Wind", "Run Simulation", "Compare Routes", "Adjust and Re-run"].map(
+            (step, index) => (
+              <span className={index < demoStepIndex(state.status) ? "is-complete" : ""} key={step}>
+                {index + 1}. {step}
+              </span>
+            ),
+          )}
+        </section>
+      ) : null}
+
+      <section className="control-section">
+        <div className="section-title">
+          <h3>Scenario</h3>
+          <span>{state.scenarios.length} presets</span>
+        </div>
+        <label className="field">
+          <span>Preset</span>
+          <select
+            value={state.selectedScenarioName}
+            onChange={(event) => {
+              const scenario = state.scenarios.find((item) => item.name === event.target.value);
+              if (scenario) {
+                dispatch({ type: "scenarioSelected", scenario });
+              }
+            }}
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <option>Custom scenario</option>
+            {state.scenarios.map((scenario) => (
+              <option key={scenario.name} value={scenario.name}>
+                {scenario.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </section>
+
+      <section className="control-section">
+        <div className="section-title">
+          <h3>Ignition</h3>
+          <button
+            className={`secondary-button ${state.selectIgnitionMode ? "is-active" : ""}`}
+            type="button"
+            onClick={() =>
+              dispatch({ type: "selectIgnitionModeSet", enabled: !state.selectIgnitionMode })
+            }
+          >
+            Select on Map
           </button>
         </div>
-        <ControlPanelContent />
-      </div>
-    </>
+        <div className="coord-grid">
+          <Readout label="Lat" value={state.ignition.lat.toFixed(5)} />
+          <Readout label="Lon" value={state.ignition.lon.toFixed(5)} />
+        </div>
+        {state.fieldErrors.ignition_lat || state.fieldErrors.ignition_lon ? (
+          <p className="field-error">
+            {state.fieldErrors.ignition_lat ?? state.fieldErrors.ignition_lon}
+          </p>
+        ) : null}
+      </section>
+
+      <section className="control-section">
+        <div className="section-title">
+          <h3>Wind</h3>
+          <div className="segmented-control" role="group" aria-label="Wind mode">
+            <button
+              className={state.windMode === "live" ? "is-selected" : ""}
+              type="button"
+              onClick={fetchLiveWind}
+            >
+              Live
+            </button>
+            <button
+              className={manualWind ? "is-selected" : ""}
+              type="button"
+              onClick={() => dispatch({ type: "windModeSet", mode: "manual" })}
+            >
+              Manual
+            </button>
+          </div>
+        </div>
+        <button className="secondary-button secondary-button--full" type="button" onClick={fetchLiveWind}>
+          Fetch Live Wind
+        </button>
+        <div className="field-grid">
+          {windFields.map((item) => (
+            <label className="field" key={item.field}>
+              <span>{item.label}</span>
+              <div className="input-with-unit">
+                <input
+                  disabled={!manualWind}
+                  max={item.max}
+                  min={item.min}
+                  step={item.field === "wind_direction_deg" ? 1 : 0.5}
+                  type="number"
+                  value={state.wind[item.field]}
+                  onChange={(event) =>
+                    dispatch({
+                      type: "windFieldSet",
+                      field: item.field,
+                      value: Number(event.target.value),
+                    })
+                  }
+                />
+                <span>{item.unit}</span>
+              </div>
+              {state.fieldErrors[item.field] ? (
+                <span className="field-error">{state.fieldErrors[item.field]}</span>
+              ) : null}
+            </label>
+          ))}
+        </div>
+      </section>
+
+      <section className="control-section">
+        <div className="section-title">
+          <h3>Uncertainty</h3>
+          <output>{state.numRuns} runs</output>
+        </div>
+        <input
+          aria-label="Monte Carlo runs"
+          max={1000}
+          min={50}
+          step={50}
+          type="range"
+          value={state.numRuns}
+          onChange={(event) => dispatch({ type: "numRunsSet", value: Number(event.target.value) })}
+        />
+        {state.fieldErrors.num_runs ? <p className="field-error">{state.fieldErrors.num_runs}</p> : null}
+      </section>
+
+      <section className="control-section">
+        <div className="section-title">
+          <h3>Map Layers</h3>
+          <span>WebGL overlays</span>
+        </div>
+        <div className="layer-list">
+          {Object.entries(state.layers).map(([layer, enabled]) => (
+            <label className="toggle-row" key={layer}>
+              <span>{layerLabel(layer)}</span>
+              <input
+                checked={enabled}
+                type="checkbox"
+                onChange={(event) =>
+                  dispatch({
+                    type: "layerSet",
+                    layer: layer as keyof typeof state.layers,
+                    value: event.target.checked,
+                  })
+                }
+              />
+            </label>
+          ))}
+        </div>
+        <label className="field">
+          <span>Burn opacity</span>
+          <input
+            max={0.9}
+            min={0.2}
+            step={0.05}
+            type="range"
+            value={state.burnOpacity}
+            onChange={(event) =>
+              dispatch({ type: "burnOpacitySet", value: Number(event.target.value) })
+            }
+          />
+        </label>
+        <label className="field">
+          <span>Terrain exaggeration</span>
+          <input
+            max={3}
+            min={1}
+            step={0.1}
+            type="range"
+            value={state.terrainExaggeration}
+            onChange={(event) =>
+              dispatch({ type: "terrainExaggerationSet", value: Number(event.target.value) })
+            }
+          />
+        </label>
+      </section>
+
+      {state.progress ? (
+        <section className="progress-card">
+          <div className="progress-card__top">
+            <strong>{state.progress.phase}</strong>
+            <span>
+              {state.progress.completedRuns} / {state.progress.totalRuns}
+            </span>
+          </div>
+          <progress value={state.progress.completedRuns} max={state.progress.totalRuns} />
+          <span>
+            elapsed {state.progress.elapsedSec.toFixed(1)}s, eta {state.progress.etaSec.toFixed(1)}s
+          </span>
+          <div className="fire-preview" aria-hidden="true" />
+        </section>
+      ) : null}
+
+      {state.apiError ? <p className="api-error">{state.apiError}</p> : null}
+
+      <button
+        className="run-button"
+        type="button"
+        disabled={running}
+        onClick={() => void runSimulation()}
+      >
+        {running ? "Running Simulation" : "Run Simulation"}
+      </button>
+    </aside>
   );
 }
 
-/**
- * Shared content for both desktop and mobile views.
- *
- * Manages validation state: tracks whether wind inputs have errors and
- * whether the user has attempted to run without an ignition point, so
- * that IgnitionSection can show its required-error state.
- */
-function ControlPanelContent(): React.ReactElement {
-  // Whether wind section currently has validation errors
-  const [hasWindErrors, setHasWindErrors] = useState(false);
-
-  // Whether the user clicked Run without an ignition point (triggers error display)
-  const [showIgnitionError, setShowIgnitionError] = useState(false);
-
-  /**
-   * Called by WindSection whenever its validation state changes.
-   */
-  const handleWindValidationChange = useCallback((hasErrors: boolean) => {
-    setHasWindErrors(hasErrors);
-  }, []);
-
-  /**
-   * Called by RunButton when the user clicks Run but validation fails.
-   * Triggers the ignition required error display.
-   */
-  const handleValidationAttempt = useCallback(() => {
-    setShowIgnitionError(true);
-  }, []);
-
+function Readout({ label, value }: { label: string; value: string }) {
   return (
-    <div className="space-y-4">
-      {/* Placeholder header */}
-      <h2 className="text-xs uppercase tracking-wider text-gray-500 font-semibold">
-        Simulation Controls
-      </h2>
-
-      {/* Region selection */}
-      <RegionSelector />
-
-      {/* Ignition point selection — shows error when run attempted without point */}
-      <IgnitionSection showRequiredError={showIgnitionError} />
-
-      {/* Wind parameters — reports validation errors up */}
-      <WindSection onValidationChange={handleWindValidationChange} />
-
-      {/* Scenario presets */}
-      <ScenarioSelector />
-
-      {/* Monte Carlo runs slider */}
-      <MonteCarloSlider />
-
-      {/* Run simulation button — disabled when validation fails */}
-      <RunButton
-        hasWindErrors={hasWindErrors}
-        onValidationAttempt={handleValidationAttempt}
-      />
+    <div className="coordinate-readout">
+      <span>{label}</span>
+      <strong>{value}</strong>
     </div>
   );
+}
+
+function layerLabel(layer: string) {
+  return layer
+    .replace(/([A-Z])/g, " $1")
+    .replace(/^./, (char) => char.toUpperCase());
+}
+
+function demoStepIndex(status: string) {
+  if (status === "complete") {
+    return 4;
+  }
+  if (status === "running") {
+    return 3;
+  }
+  return 1;
 }

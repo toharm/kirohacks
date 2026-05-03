@@ -42,9 +42,11 @@ def generate_seed_data(
         for f in futures:
             f.result()
 
-    logger.info("Running serial batch 2 (roads, shelters)")
+    logger.info("Running road graph ingest with OSMnx")
+    fetch_road_network(bbox, seed_dir / "road_graph.json")
+
+    logger.info("Running shelter ingest")
     client = OverpassClient()
-    fetch_road_network(bbox, seed_dir / "road_graph.json", overpass_client=client)
     fetch_shelters(bbox, seed_dir / "shelters.json", overpass_client=client)
 
     logger.info("Fetching fire perimeters")

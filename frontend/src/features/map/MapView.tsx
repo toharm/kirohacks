@@ -1,238 +1,392 @@
-/**
- * MapView Component
- *
- * Central map area displaying the Deck.gl map with terrain and data layers.
- * Integrates Mapbox GL JS for basemap and terrain, with Deck.gl for data overlays.
- */
+import { useEffect, useState } from "react";
+import type { PickingInfo } from "@deck.gl/core";
+import DeckGL from "@deck.gl/react";
+import { PathLayer, PolygonLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
+import { campFirePerimeter, previewZones, shelters } from "../../services/mockData";
+import { useSimulationState } from "../../context/useSimulationState";
+import type { BurnProbabilityMap, GeoJsonPolygon, RouteResult, Shelter, ZoneResult } from "../../types/api";
+import { AnimationTimeline } from "./AnimationTimeline";
 
-import { useRef, useCallback, useMemo, useState, useEffect } from 'react';
-import DeckGL from '@deck.gl/react';
-import { Map, type MapRef } from 'react-map-gl/mapbox';
-import type { PickingInfo } from '@deck.gl/core';
-import type { MapMouseEvent } from 'mapbox-gl';
-
-import { cn } from '@/lib/cn';
-import { useSimulation } from '@/hooks/useSimulation';
-import { LayerToggle } from '@/components/LayerToggle';
-import { useIgnitionMarkerLayer } from './IgnitionMarker';
-import { useElevationLayer } from './ElevationLayer';
-import { usePerimeterOutlineLayer } from './PerimeterOutline';
-import { useShelterMarkers } from './ShelterMarkers';
-import { useBurnHeatmapLayer } from './BurnHeatmapLayer';
-import { useRouteOverlayLayer } from './RouteOverlayLayer';
-import { useZoneChoroplethLayer, ZoneTooltip } from './ZoneChoroplethLayer';
-import { AnimationTimeline } from './AnimationTimeline';
-
-import 'mapbox-gl/dist/mapbox-gl.css';
-
-export interface MapViewProps {
-  onOpenLeftPanel: () => void;
-  onOpenRightPanel: () => void;
+interface MapCamera {
+  longitude: number;
+  latitude: number;
+  zoom: number;
+  pitch: number;
+  bearing: number;
 }
 
-const INITIAL_VIEW_STATE = {
-  latitude: 20,
-  longitude: 0,
-  zoom: 2,
-  pitch: 0,
-  bearing: 0,
+interface BurnCell {
+  position: [number, number];
+  probability: number;
+}
+
+interface RouteDatum {
+  route: RouteResult;
+  selected: boolean;
+}
+
+interface ZoneDatum extends ZoneResult {
+  selected: boolean;
+}
+
+interface HoveredZone {
+  zone: ZoneResult;
+  x: number;
+  y: number;
+}
+
+const initialViewState: MapCamera = {
+  longitude: -121.6219,
+  latitude: 39.7596,
+  zoom: 10.9,
+  pitch: 48,
+  bearing: -18,
 };
 
-const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as string | undefined;
-const HAS_MAPBOX_TOKEN = Boolean(MAPBOX_TOKEN && MAPBOX_TOKEN.trim() !== '');
-const MAPBOX_DARK_STYLE = 'mapbox://styles/mapbox/dark-v11';
+export function MapView() {
+  const { state, dispatch } = useSimulationState();
+  const [viewState, setViewState] = useState<MapCamera>(initialViewState);
+  const [hoveredZone, setHoveredZone] = useState<HoveredZone | null>(null);
+  const zones = state.result?.zone_results ?? previewZones;
+  const burnMap = state.result?.burn_probability_map;
+  const routes = routeData(zones, state.selectedRouteId);
 
-const OSM_STYLE = {
-  version: 8 as const,
-  sources: {
-    osm: {
-      type: 'raster' as const,
-      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-      tileSize: 256,
-      attribution: '© OpenStreetMap contributors',
-    },
-  },
-  layers: [{ id: 'osm-tiles', type: 'raster' as const, source: 'osm', minzoom: 0, maxzoom: 19 }],
-};
-
-export function MapView({ onOpenLeftPanel, onOpenRightPanel }: MapViewProps): React.ReactElement {
-  const mapRef = useRef<MapRef | null>(null);
-  const { state, setIgnition, toggleLayer, setTerrainExaggeration, selectZone } = useSimulation();
-  const { ignitionPoint, visibleLayers, terrainExaggeration, currentResults, animationTimestep, selectedZoneId } = state;
-
-  const [burnHeatmapOpacity, setBurnHeatmapOpacity] = useState(0.8);
-
-  // Fly to region bounds when results arrive
   useEffect(() => {
-    const bounds = currentResults?.burn_probability?.grid_bounds;
-    if (!bounds || !mapRef.current) return;
-    const { min_lat, max_lat, min_lon, max_lon } = bounds;
-    mapRef.current.fitBounds(
-      [[min_lon, min_lat], [max_lon, max_lat]],
-      { padding: 40, duration: 1000 }
-    );
-  }, [currentResults]);
+    const selectedZone = zones.find((zone) => zone.zone_id === state.selectedZoneId);
+    if (!selectedZone) {
+      return undefined;
+    }
+    const center = polygonCenter(selectedZone.geometry);
+    const timeoutId = window.setTimeout(() => {
+      setViewState((current) => ({
+        ...current,
+        longitude: center[0],
+        latitude: center[1],
+        zoom: Math.max(current.zoom, 11.7),
+      }));
+    }, 0);
 
-  const handleMapClick = useCallback(
-    (info: PickingInfo) => {
-      if (info.coordinate) {
-        const [lon, lat] = info.coordinate;
-        setIgnition({ lat, lon });
-      }
-    },
-    [setIgnition]
-  );
+    return () => window.clearTimeout(timeoutId);
+  }, [state.selectedZoneId, zones]);
 
-  const handleMapLayerClick = useCallback(
-    (event: MapMouseEvent) => {
-      const { lngLat } = event;
-      setIgnition({ lat: lngLat.lat, lon: lngLat.lng });
-    },
-    [setIgnition]
-  );
-
-  useElevationLayer({
-    mapRef,
-    exaggeration: terrainExaggeration,
-    visible: visibleLayers.elevation,
-    hasMapboxToken: HAS_MAPBOX_TOKEN,
-  });
-
-  const ignitionLayer = useIgnitionMarkerLayer({ ignitionPoint });
-  const perimeterLayer = usePerimeterOutlineLayer({ visible: visibleLayers.perimeter });
-  const shelterState = useShelterMarkers({ visible: visibleLayers.shelters });
-  const shelterLayers = shelterState.layers;
-
-  const burnHeatmapLayer = useBurnHeatmapLayer({
-    burnProbability: currentResults?.burn_probability ?? null,
-    arrivalTimes: currentResults?.arrival_times ?? null,
-    animationTimestep,
-    opacity: burnHeatmapOpacity,
-    visible: visibleLayers.burnHeatmap,
-  });
-
-  const routeLayers = useRouteOverlayLayer({
-    routes: currentResults?.routes ?? [],
-    selectedZoneId,
-    visible: visibleLayers.routes,
-  });
-
-  const { layer: zoneLayer, tooltip: zoneTooltip } = useZoneChoroplethLayer({
-    zones: currentResults?.zones ?? null,
-    selectedZoneId,
-    visible: visibleLayers.zones,
-    onSelectZone: selectZone,
-  });
-
-  const layers = useMemo(() => {
-    const all = [];
-    if (perimeterLayer) all.push(perimeterLayer);
-    if (burnHeatmapLayer) all.push(burnHeatmapLayer);
-    if (zoneLayer) all.push(zoneLayer);
-    all.push(...routeLayers);
-    all.push(...shelterLayers);
-    if (ignitionLayer) all.push(ignitionLayer);
-    return all;
-  }, [perimeterLayer, burnHeatmapLayer, zoneLayer, routeLayers, shelterLayers, ignitionLayer]);
-
-  const mapStyle = HAS_MAPBOX_TOKEN ? MAPBOX_DARK_STYLE : OSM_STYLE;
-  const hasResults = currentResults !== null;
+  const layers = [
+    state.layers.elevation
+      ? new PathLayer({
+          id: "terrain-contours",
+          data: terrainContours,
+          getPath: (path: [number, number][]) => path,
+          getColor: [99, 179, 237, 70],
+          getWidth: 2 * state.terrainExaggeration,
+          widthUnits: "pixels",
+        })
+      : null,
+    state.layers.perimeter
+      ? new PolygonLayer<{ geometry: GeoJsonPolygon }>({
+          id: "camp-fire-perimeter",
+          data: [{ geometry: campFirePerimeter }],
+          stroked: true,
+          filled: true,
+          getPolygon: (item) => item.geometry.coordinates[0],
+          getFillColor: [220, 38, 38, 22],
+          getLineColor: [255, 107, 53, 210],
+          getLineWidth: 3,
+          lineWidthUnits: "pixels",
+        })
+      : null,
+    state.layers.zones
+      ? new PolygonLayer<ZoneDatum>({
+          id: "zone-choropleth-layer",
+          data: zones.map((zone) => ({ ...zone, selected: zone.zone_id === state.selectedZoneId })),
+          pickable: true,
+          stroked: true,
+          filled: true,
+          getPolygon: (zone) => zone.geometry.coordinates[0],
+          getFillColor: (zone) => zoneFillColor(zone),
+          getLineColor: (zone) => (zone.selected ? [249, 250, 251, 255] : [148, 163, 184, 130]),
+          getLineWidth: (zone) => (zone.selected ? 4 : 1),
+          lineWidthUnits: "pixels",
+          onHover: (info: PickingInfo<ZoneDatum>) => {
+            setHoveredZone(info.object ? { zone: info.object, x: info.x, y: info.y } : null);
+          },
+          onClick: (info: PickingInfo<ZoneDatum>) => {
+            if (info.object) {
+              dispatch({ type: "zoneSelected", zoneId: info.object.zone_id });
+            }
+          },
+        })
+      : null,
+    state.layers.burnHeatmap && burnMap
+      ? new ScatterplotLayer<BurnCell>({
+          id: "burn-heatmap-layer",
+          data: burnCells(burnMap),
+          getPosition: (cell) => cell.position,
+          getFillColor: (cell) => burnColor(cell.probability, state.burnOpacity),
+          getRadius: 440,
+          radiusUnits: "meters",
+          stroked: false,
+          opacity: state.animation.playing ? 0.75 : 1,
+        })
+      : null,
+    state.layers.routes
+      ? new PathLayer<RouteDatum>({
+          id: "route-overlay-layer",
+          data: routes,
+          pickable: true,
+          getPath: (item) => routePath(item.route),
+          getColor: (item) => routeColor(item.route.viability_score ?? 0, item.selected),
+          getWidth: (item) => (item.selected ? 8 : 4),
+          widthUnits: "pixels",
+          onClick: (info: PickingInfo<RouteDatum>) => {
+            if (info.object) {
+              dispatch({
+                type: "routeSelected",
+                routeId: info.object.route.route_id,
+                zoneId: info.object.route.zone_id,
+              });
+            }
+          },
+        })
+      : null,
+    state.layers.shelters
+      ? new ScatterplotLayer<Shelter>({
+          id: "shelter-markers",
+          data: shelters,
+          getPosition: (shelter) => [shelter.lon, shelter.lat],
+          getRadius: 260,
+          radiusUnits: "meters",
+          getFillColor: [16, 185, 129, 225],
+          getLineColor: [249, 250, 251, 230],
+          getLineWidth: 2,
+          lineWidthUnits: "pixels",
+          stroked: true,
+        })
+      : null,
+    state.layers.shelters
+      ? new TextLayer<Shelter>({
+          id: "shelter-labels",
+          data: shelters,
+          getPosition: (shelter) => [shelter.lon, shelter.lat],
+          getText: (shelter) => `${shelter.capacity}`,
+          getColor: [249, 250, 251, 255],
+          getSize: 12,
+          getPixelOffset: [0, -24],
+          fontFamily: "JetBrains Mono, monospace",
+        })
+      : null,
+    new ScatterplotLayer({
+      id: "ignition-marker",
+      data: [state.ignition],
+      getPosition: (point) => [point.lon, point.lat],
+      getRadius: 300,
+      radiusUnits: "meters",
+      getFillColor: [255, 107, 53, 210],
+      getLineColor: [249, 250, 251, 255],
+      getLineWidth: 3,
+      lineWidthUnits: "pixels",
+      stroked: true,
+    }),
+  ].filter(Boolean);
 
   return (
-    <div className="flex-1 relative bg-surface-base">
+    <main className="map-shell">
+      <div className="map-basemap" aria-hidden="true" />
       <DeckGL
-        initialViewState={INITIAL_VIEW_STATE}
-        controller={true}
+        controller
         layers={layers}
-        onClick={handleMapClick}
-        getCursor={() => 'crosshair'}
-        style={{ position: 'absolute', top: '0', left: '0', right: '0', bottom: '0' }}
-      >
-        <Map
-          ref={mapRef}
-          mapStyle={mapStyle}
-          mapboxAccessToken={MAPBOX_TOKEN}
-          onClick={handleMapLayerClick}
-          attributionControl={true}
-          reuseMaps
-        />
-      </DeckGL>
-
-      {/* Zone hover tooltip */}
-      <ZoneTooltip tooltip={zoneTooltip} />
-
-      {/* Layer Toggle Panel */}
-      <LayerToggle
-        visibleLayers={visibleLayers}
-        onToggleLayer={toggleLayer}
-        terrainExaggeration={terrainExaggeration}
-        onSetTerrainExaggeration={setTerrainExaggeration}
-        hasMapboxToken={HAS_MAPBOX_TOKEN}
-        burnHeatmapOpacity={burnHeatmapOpacity}
-        onSetBurnHeatmapOpacity={setBurnHeatmapOpacity}
+        viewState={viewState}
+        onClick={(info: PickingInfo) => {
+          if (state.selectIgnitionMode && info.coordinate) {
+            const [lon, lat] = info.coordinate;
+            dispatch({ type: "ignitionSet", lat, lon });
+          }
+        }}
+        onViewStateChange={({ viewState: nextViewState }) =>
+          setViewState(toMapCamera(nextViewState as Partial<MapCamera>))
+        }
       />
 
-      {/* Ignition Point Indicator */}
-      {ignitionPoint && (
-        <div className={cn('absolute bottom-16 left-4 z-10', 'bg-surface-overlay/90 backdrop-blur-sm', 'border border-surface-border rounded-lg', 'px-3 py-2')}>
-          <div className="text-xs text-gray-400 mb-1">Ignition Point</div>
-          <div className="font-mono text-sm text-fire-active">
-            {ignitionPoint.lat.toFixed(4)}°N, {Math.abs(ignitionPoint.lon).toFixed(4)}°W
-          </div>
-        </div>
-      )}
-
-      {/* Click instruction overlay */}
-      {!ignitionPoint && (
-        <div className={cn('absolute bottom-16 left-1/2 -translate-x-1/2 z-10', 'bg-surface-overlay/90 backdrop-blur-sm', 'border border-surface-border rounded-lg', 'px-4 py-2', 'text-sm text-gray-300', 'animate-fade-in')}>
-          Click on the map to set ignition point
-        </div>
-      )}
-
-      {/* OSM fallback notice */}
-      {!HAS_MAPBOX_TOKEN && (
-        <div className={cn('absolute top-4 left-4 z-10', 'bg-accent-warning/10 border border-accent-warning/30', 'rounded-lg px-3 py-2', 'text-xs text-accent-warning')}>
-          Using OSM tiles (no Mapbox token)
-        </div>
-      )}
-
-      {/* Animation Timeline — shown when results available */}
-      {hasResults && <AnimationTimeline />}
-
-      {/* Data warnings */}
-      {shelterState.error && (
-        <div className={cn('absolute top-4 right-4 z-10 max-w-xs', 'bg-accent-error/10 border border-accent-error/30', 'rounded-lg px-3 py-2', 'text-xs text-accent-error')} role="alert">
-          ⚠ {shelterState.error}
-        </div>
-      )}
-      {hasResults && currentResults!.routes.length === 0 && (
-        <div className={cn('absolute top-4 right-4 z-10 max-w-xs', shelterState.error ? 'top-16' : 'top-4', 'bg-accent-error/10 border border-accent-error/30', 'rounded-lg px-3 py-2', 'text-xs text-accent-error')} role="alert">
-          ⚠ No evacuation routes computed. Road network may be missing or disconnected.
-        </div>
-      )}
-
-      {/* Mobile toggle buttons */}
-      <button
-        type="button"
-        onClick={onOpenLeftPanel}
-        className={cn('lg:hidden absolute top-1/2 left-0 z-10 -translate-y-1/2', 'p-2 bg-surface-raised border border-surface-border rounded-r-lg', 'text-gray-400 hover:text-gray-200 hover:bg-surface-hover', 'transition-colors', 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary')}
-        aria-label="Open control panel"
-      >
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-        </svg>
-      </button>
+      <div className="map-toolbar">
+        <button
+          className={`map-chip ${state.selectIgnitionMode ? "is-active" : ""}`}
+          type="button"
+          onClick={() =>
+            dispatch({ type: "selectIgnitionModeSet", enabled: !state.selectIgnitionMode })
+          }
+        >
+          {state.selectIgnitionMode ? "Click map for ignition" : "Ignition select"}
+        </button>
+        <span className="map-chip">Paradise, CA</span>
+        <span className="map-chip">terrain {state.terrainExaggeration.toFixed(1)}x</span>
+      </div>
 
       <button
+        className="drawer-tab drawer-tab--left"
         type="button"
-        onClick={onOpenRightPanel}
-        className={cn('lg:hidden absolute top-1/2 right-0 z-10 -translate-y-1/2', 'p-2 bg-surface-raised border border-surface-border rounded-l-lg', 'text-gray-400 hover:text-gray-200 hover:bg-surface-hover', 'transition-colors', 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary')}
-        aria-label="Open results panel"
+        onClick={() => dispatch({ type: "panelSet", panel: "controls", open: !state.panels.controls })}
       >
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-        </svg>
+        Controls
       </button>
+      <button
+        className="drawer-tab drawer-tab--right"
+        type="button"
+        onClick={() => dispatch({ type: "panelSet", panel: "results", open: !state.panels.results })}
+      >
+        Results
+      </button>
+
+      {hoveredZone ? <ZoneTooltip hoveredZone={hoveredZone} /> : null}
+      <AnimationTimeline />
+    </main>
+  );
+}
+
+function ZoneTooltip({ hoveredZone }: { hoveredZone: HoveredZone }) {
+  const { zone, x, y } = hoveredZone;
+
+  return (
+    <div className="zone-tooltip" style={{ left: x + 16, top: y + 16 }}>
+      <strong>{zone.zone_id}</strong>
+      <span>Population {zone.population.toLocaleString()}</span>
+      <span>Cutoff {zone.cutoff_time ?? "n/a"} min</span>
+      <span>Priority {zone.evacuation_priority_score.toFixed(0)}</span>
+      <span>Failure risk {(zone.failure_risk_pct ?? 0).toFixed(0)}%</span>
     </div>
   );
 }
+
+function burnCells(map: BurnProbabilityMap): BurnCell[] {
+  const { grid_bounds: bounds, data } = map;
+  const latStep = (bounds.max_lat - bounds.min_lat) / bounds.grid_rows;
+  const lonStep = (bounds.max_lon - bounds.min_lon) / bounds.grid_cols;
+  const cells: BurnCell[] = [];
+
+  data.forEach((row, rowIndex) => {
+    row.forEach((probability, colIndex) => {
+      if (probability < 0.05) {
+        return;
+      }
+      cells.push({
+        probability,
+        position: [
+          bounds.min_lon + lonStep * (colIndex + 0.5),
+          bounds.max_lat - latStep * (rowIndex + 0.5),
+        ],
+      });
+    });
+  });
+
+  return cells;
+}
+
+function burnColor(probability: number, opacity: number): [number, number, number, number] {
+  const alpha = Math.round(255 * opacity * Math.min(1, probability + 0.25));
+  if (probability < 0.3) {
+    return [255, 214, 0, alpha];
+  }
+  if (probability < 0.6) {
+    return [245, 158, 11, alpha];
+  }
+  if (probability < 0.8) {
+    return [255, 107, 53, alpha];
+  }
+  return [136, 19, 55, alpha];
+}
+
+function routeData(zones: ZoneResult[], selectedRouteId: string | null): RouteDatum[] {
+  return zones.flatMap((zone) => {
+    const items: RouteDatum[] = [
+      {
+        route: zone.baseline_route,
+        selected: zone.baseline_route.route_id === selectedRouteId,
+      },
+    ];
+    if (zone.optimized_route) {
+      items.push({
+        route: zone.optimized_route,
+        selected: zone.optimized_route.route_id === selectedRouteId,
+      });
+    }
+    return items;
+  });
+}
+
+function routeColor(score: number, selected: boolean): [number, number, number, number] {
+  const alpha = selected ? 255 : 190;
+  if (score > 80) {
+    return [0, 229, 255, alpha];
+  }
+  if (score >= 50) {
+    return [255, 214, 0, alpha];
+  }
+  return [255, 23, 68, alpha];
+}
+
+function routePath(route: RouteResult): [number, number][] {
+  return route.path_coords.map(([lat, lon]): [number, number] => [lon, lat]);
+}
+
+function toMapCamera(viewState: Partial<MapCamera>): MapCamera {
+  return {
+    longitude: viewState.longitude ?? initialViewState.longitude,
+    latitude: viewState.latitude ?? initialViewState.latitude,
+    zoom: viewState.zoom ?? initialViewState.zoom,
+    pitch: viewState.pitch ?? initialViewState.pitch,
+    bearing: viewState.bearing ?? initialViewState.bearing,
+  };
+}
+
+function zoneFillColor(zone: ZoneDatum): [number, number, number, number] {
+  const cutoff = zone.cutoff_time ?? 99;
+  const alpha = zone.selected ? 178 : 112;
+
+  if (cutoff > 30) {
+    return [16, 185, 129, alpha];
+  }
+  if (cutoff > 15) {
+    return [255, 214, 0, alpha];
+  }
+  if (cutoff > 5) {
+    return [245, 158, 11, alpha];
+  }
+  return [239, 68, 68, alpha];
+}
+
+function polygonCenter(geometry: GeoJsonPolygon): [number, number] {
+  const points = geometry.coordinates[0];
+  const total = points.reduce(
+    (sum, point) => ({
+      lon: sum.lon + point[0],
+      lat: sum.lat + point[1],
+    }),
+    { lat: 0, lon: 0 },
+  );
+
+  return [total.lon / points.length, total.lat / points.length];
+}
+
+const terrainContours: Array<[number, number][]> = [
+  [
+    [-121.72, 39.69],
+    [-121.68, 39.72],
+    [-121.64, 39.77],
+    [-121.61, 39.82],
+  ],
+  [
+    [-121.7, 39.71],
+    [-121.65, 39.74],
+    [-121.59, 39.79],
+    [-121.54, 39.83],
+  ],
+  [
+    [-121.69, 39.75],
+    [-121.63, 39.77],
+    [-121.57, 39.8],
+    [-121.5, 39.81],
+  ],
+  [
+    [-121.66, 39.69],
+    [-121.62, 39.72],
+    [-121.58, 39.76],
+    [-121.55, 39.8],
+  ],
+];

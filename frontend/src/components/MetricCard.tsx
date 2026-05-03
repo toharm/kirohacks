@@ -1,31 +1,28 @@
-/**
- * MetricCard — reusable metric display component
- */
-
-import { cn } from '@/lib/cn';
-
-export interface MetricCardProps {
+interface MetricCardProps {
   label: string;
   value: string | number;
   unit?: string;
-  color?: string;
-  delta?: number; // positive = improvement
-  size?: 'sm' | 'md' | 'lg';
+  tone?: "default" | "success" | "warning" | "critical" | "info";
+  detail?: string;
+  large?: boolean;
 }
 
-export function MetricCard({ label, value, unit, color, delta, size = 'md' }: MetricCardProps) {
+export function MetricCard({
+  label,
+  value,
+  unit,
+  tone = "default",
+  detail,
+  large = false,
+}: MetricCardProps) {
   return (
-    <div className="bg-surface-overlay border border-surface-border rounded-lg p-3">
-      <div className="text-xs uppercase tracking-wider text-gray-500 mb-1">{label}</div>
-      <div className={cn('font-mono font-bold', size === 'lg' ? 'text-4xl' : size === 'md' ? 'text-2xl' : 'text-lg', color ?? 'text-gray-100')}>
-        {value}
-        {unit && <span className="text-sm font-normal text-gray-400 ml-1">{unit}</span>}
+    <article className={`metric-card metric-card--${tone} ${large ? "metric-card--large" : ""}`}>
+      <span className="metric-card__label">{label}</span>
+      <div className="metric-card__value-row">
+        <strong className="metric-card__value">{value}</strong>
+        {unit ? <span className="metric-card__unit">{unit}</span> : null}
       </div>
-      {delta !== undefined && (
-        <div className={cn('text-xs mt-1', delta >= 0 ? 'text-accent-success' : 'text-accent-error')}>
-          {delta >= 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(1)}%
-        </div>
-      )}
-    </div>
+      {detail ? <span className="metric-card__detail">{detail}</span> : null}
+    </article>
   );
 }
